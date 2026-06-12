@@ -51,7 +51,9 @@ build PaperlandIterion
 serve
 ```
 
-Frontend asks backend for latest manifest on Play. Backend rebuilds manifest from current profile folder, hashes files, and frontend downloads only missing or changed pack files. Backend stores only current hash manifest in `data/builds/<slug>/latest.json`; pack files stay only in `data/sources/<slug>` and `/files/...` serves them from there. Old build folders are removed on next build. Backend never serves Minecraft `assets`, `libraries`, or `versions`.
+Frontend talks to backend over WebSocket at `/api/v1/ws`. On Play it sends `profile.latest`; backend rebuilds manifest from current profile folder, hashes files, and frontend downloads only missing or changed pack files. Backend stores only current hash manifest in `data/builds/<slug>/latest.json`; pack files stay only in `data/sources/<slug>` and `/files/...` serves them from there. Old build folders are removed on next build. Backend never serves Minecraft `assets`, `libraries`, or `versions`.
+
+When profiles or builds change through shell/CLI, the running backend watches `data/profiles.json` and `data/builds/*/latest.json`, then pushes `profiles.changed` to every connected launcher.
 
 ## Sync Rules
 
@@ -89,10 +91,10 @@ Frontend sends email/password/2FA to backend. Backend authenticates against Azur
 
 ## Launcher updates
 
-Frontend asks:
+Frontend asks over WebSocket:
 
 ```text
-GET /api/v1/launcher/update?current_version=0.1.0&platform=windows
+{"type":"launcher.update","payload":{"current_version":"0.1.0","platform":"windows"}}
 ```
 
 Write update metadata after publishing new EXE:
