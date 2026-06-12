@@ -114,6 +114,10 @@ def profile_source_dir(slug: str) -> Path:
     return assert_inside(data_dir() / "sources" / slug, data_dir() / "sources")
 
 
+def profile_build_dir(slug: str) -> Path:
+    return assert_inside(data_dir() / "builds" / slug, data_dir() / "builds")
+
+
 def create_profile(
     minecraft_version: str,
     mod_loader: str,
@@ -326,13 +330,11 @@ def build_profile(slug: str, base_url: str) -> dict[str, Any]:
         raise KeyError(f"Profile not found: {slug}")
     profile = profiles[slug]
     entries: list[dict[str, Any]] = []
-    source_map: dict[str, Path] = {}
 
     for source, rel in iter_source_files(profile):
         file_hash = sha256_file(source)
         stat = source.stat()
         entries.append({"path": rel, "size": stat.st_size, "sha256": file_hash, "mode": file_mode(rel, profile)})
-        source_map[rel] = source
 
     digest = hashlib.sha256()
     for value in (
@@ -353,19 +355,15 @@ def build_profile(slug: str, base_url: str) -> dict[str, Any]:
 
     content_hash = digest.hexdigest()
     build_id = content_hash[:16]
-    build_root = data_dir() / "builds" / slug / build_id
-    files_root = build_root / "files"
+    build_root = profile_build_dir(slug)
     if build_root.exists():
         shutil.rmtree(assert_inside(build_root, data_dir() / "builds"))
-    files_root.mkdir(parents=True, exist_ok=True)
+    build_root.mkdir(parents=True, exist_ok=True)
 
     public_entries: list[dict[str, Any]] = []
     base = base_url.rstrip("/")
     for entry in entries:
         rel = entry["path"]
-        dest = assert_inside(files_root / rel, files_root)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source_map[rel], dest)
         encoded_path = "/".join(quote(part) for part in rel.split("/"))
         public_entries.append(
             {
@@ -374,12 +372,17 @@ def build_profile(slug: str, base_url: str) -> dict[str, Any]:
             }
         )
 
+    build_time = now_iso()
+    profile["latest_build"] = build_id
+    profile["updated_at"] = build_time
+    profiles[slug] = profile
+
     manifest = {
         "schema_version": 1,
         "profile": public_profile(profile),
         "build_id": build_id,
         "content_hash": content_hash,
-        "created_at": now_iso(),
+        "created_at": build_time,
         "file_count": len(public_entries),
         "total_size": sum(item["size"] for item in public_entries),
         "rules": {
@@ -389,33 +392,43 @@ def build_profile(slug: str, base_url: str) -> dict[str, Any]:
         },
         "files": public_entries,
     }
-    write_json(build_root / "manifest.json", manifest)
-    write_json(data_dir() / "builds" / slug / "latest.json", manifest)
+    write_json(build_root / "latest.json", manifest)
 
-    profile["latest_build"] = build_id
-    profile["updated_at"] = now_iso()
-    profiles[slug] = profile
     save_profiles(profiles)
     return manifest
 
 
 def latest_manifest(slug: str) -> dict[str, Any]:
-    path = data_dir() / "builds" / slug / "latest.json"
+    slug = profile_key(slug)
+    path = profile_build_dir(slug) / "latest.json"
     if not path.exists():
         raise FileNotFoundError(f"No build for profile: {slug}")
     return read_json(path, {})
 
 
 def manifest_for(slug: str, build_id: str) -> dict[str, Any]:
-    path = data_dir() / "builds" / slug / build_id / "manifest.json"
-    if not path.exists():
+    manifest = latest_manifest(slug)
+    if manifest.get("build_id") != build_id:
         raise FileNotFoundError(f"No manifest: {slug}/{build_id}")
-    return read_json(path, {})
+    return manifest
 
 
 def file_for(slug: str, build_id: str, file_path: str) -> Path:
-    root = data_dir() / "builds" / slug / build_id / "files"
-    target = assert_inside(root / file_path, root)
+    slug = profile_key(slug)
+    profile = get_profile(slug)
+    manifest = latest_manifest(slug)
+    if manifest.get("build_id") != build_id:
+        raise FileNotFoundError(f"No file build: {slug}/{build_id}")
+
+    rel = file_path.replace("\\", "/").strip("/")
+    if not rel or is_internally_excluded(rel):
+        raise FileNotFoundError(file_path)
+    manifest_files = {item["path"] for item in manifest.get("files", [])}
+    if rel not in manifest_files:
+        raise FileNotFoundError(file_path)
+
+    root = assert_inside(Path(profile["source_dir"]), data_dir() / "sources")
+    target = assert_inside(root / rel, root)
     if not target.is_file():
         raise FileNotFoundError(file_path)
     return target

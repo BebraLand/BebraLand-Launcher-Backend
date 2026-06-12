@@ -50,7 +50,7 @@ build PaperlandIterion
 serve
 ```
 
-Frontend asks backend for latest manifest on Play. Backend rebuilds manifest from current profile folder, hashes files, and frontend downloads only missing or changed pack files. Backend never serves Minecraft `assets`, `libraries`, or `versions`.
+Frontend asks backend for latest manifest on Play. Backend rebuilds manifest from current profile folder, hashes files, and frontend downloads only missing or changed pack files. Backend stores only current hash manifest in `data/builds/<slug>/latest.json`; pack files stay only in `data/sources/<slug>` and `/files/...` serves them from there. Old build folders are removed on next build. Backend never serves Minecraft `assets`, `libraries`, or `versions`.
 
 ## Sync Rules
 
