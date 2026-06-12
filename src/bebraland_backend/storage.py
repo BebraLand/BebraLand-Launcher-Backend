@@ -13,6 +13,9 @@ from urllib.parse import quote
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
+DEFAULT_RECOMMENDED_RAM_MB = 2048
+MIN_RECOMMENDED_RAM_MB = 512
+MAX_RECOMMENDED_RAM_MB = 65536
 DEFAULT_WHITELIST: list[str] = [
     "options.txt",
     "optionsof.txt",
@@ -81,6 +84,18 @@ def read_json(path: Path, default: Any) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def normalize_recommended_ram_mb(value: Any) -> int:
+    try:
+        ram_mb = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Recommended RAM must be an integer number of MB") from exc
+    if ram_mb < MIN_RECOMMENDED_RAM_MB or ram_mb > MAX_RECOMMENDED_RAM_MB:
+        raise ValueError(
+            f"Recommended RAM must be between {MIN_RECOMMENDED_RAM_MB} and {MAX_RECOMMENDED_RAM_MB} MB"
+        )
+    return ram_mb
+
+
 def slugify(value: str) -> str:
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip().lower()).strip("-")
     if not slug:
@@ -123,6 +138,15 @@ def load_profiles() -> dict[str, dict[str, Any]]:
         if "blacklist" not in profile:
             profile["blacklist"] = list(DEFAULT_BLACKLIST)
             dirty = True
+        old_ram_mb = profile.get("recommended_ram_mb")
+        try:
+            profile["recommended_ram_mb"] = normalize_recommended_ram_mb(
+                old_ram_mb if old_ram_mb is not None else DEFAULT_RECOMMENDED_RAM_MB
+            )
+        except ValueError:
+            profile["recommended_ram_mb"] = DEFAULT_RECOMMENDED_RAM_MB
+        if old_ram_mb != profile["recommended_ram_mb"]:
+            dirty = True
         for pattern in DEFAULT_WHITELIST:
             if pattern not in profile["whitelist"]:
                 profile["whitelist"].append(pattern)
@@ -152,11 +176,13 @@ def create_profile(
     mod_loader: str,
     loader_version: str,
     name: str,
+    recommended_ram_mb: int = DEFAULT_RECOMMENDED_RAM_MB,
 ) -> dict[str, Any]:
     profiles = load_profiles()
     slug = slugify(name)
     if slug in profiles:
         raise ValueError(f"Profile already exists: {slug}")
+    recommended_ram_mb = normalize_recommended_ram_mb(recommended_ram_mb)
 
     source_dir = profile_source_dir(slug)
     source_dir.mkdir(parents=True, exist_ok=True)
@@ -172,6 +198,7 @@ def create_profile(
         "source_dir": str(source_dir),
         "whitelist": list(DEFAULT_WHITELIST),
         "blacklist": list(DEFAULT_BLACKLIST),
+        "recommended_ram_mb": recommended_ram_mb,
         "latest_build": None,
         "created_at": now_iso(),
         "updated_at": now_iso(),
@@ -201,6 +228,9 @@ def public_profile(profile: dict[str, Any]) -> dict[str, Any]:
         "minecraft_version": profile["minecraft_version"],
         "mod_loader": profile["mod_loader"],
         "loader_version": profile["loader_version"],
+        "recommended_ram_mb": normalize_recommended_ram_mb(
+            profile.get("recommended_ram_mb", DEFAULT_RECOMMENDED_RAM_MB)
+        ),
         "latest_build": profile.get("latest_build"),
         "created_at": profile["created_at"],
         "updated_at": profile["updated_at"],
@@ -233,6 +263,17 @@ def set_rule(slug: str, rule_type: str, pattern: str, enabled: bool) -> dict[str
         rules.append(pattern)
     if not enabled and pattern in rules:
         rules.remove(pattern)
+    profiles[slug]["updated_at"] = now_iso()
+    save_profiles(profiles)
+    return profiles[slug]
+
+
+def set_recommended_ram(slug: str, ram_mb: int) -> dict[str, Any]:
+    profiles = load_profiles()
+    slug = profile_key(slug)
+    if slug not in profiles:
+        raise KeyError(f"Profile not found: {slug}")
+    profiles[slug]["recommended_ram_mb"] = normalize_recommended_ram_mb(ram_mb)
     profiles[slug]["updated_at"] = now_iso()
     save_profiles(profiles)
     return profiles[slug]
@@ -371,6 +412,7 @@ def build_profile(slug: str, base_url: str) -> dict[str, Any]:
         profile["minecraft_version"],
         profile["mod_loader"],
         profile["loader_version"],
+        str(profile.get("recommended_ram_mb", DEFAULT_RECOMMENDED_RAM_MB)),
     ):
         digest.update(value.encode("utf-8"))
         digest.update(b"\0")

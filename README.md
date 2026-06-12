@@ -28,21 +28,22 @@ AZURIOM_URL=https://your-azuriom-site.example
 Create profile:
 
 ```text
-profile create <mc_version> <modloader> <modloader_version> <name>
+profile create <mc_version> <modloader> <modloader_version> <name> [--ram-mb 2048]
 ```
 
 Example:
 
 ```text
-profile create 1.21.1 neoforge 21.1.227 PaperlandIterion
+profile create 1.21.1 neoforge 21.1.227 PaperlandIterion --ram-mb 2048
 profile path PaperlandIterion
 ```
 
-Backend creates a pack folder only. Put server-side `mods`, `config`, `defaultconfigs`, and other pack files into printed folder. Minecraft client, assets, libraries, and modloader are installed by frontend on each player's PC through `minecraft-launcher-lib`.
+Backend creates a pack folder only. Put server-side `mods`, `config`, `defaultconfigs`, and other pack files into printed folder. Minecraft client, assets, libraries, and modloader are installed by frontend on each player's PC through `minecraft-launcher-lib`. `--ram-mb` stores recommended RAM for launcher UI; default is `2048`.
 
 Other commands:
 
 ```text
+profile ram PaperlandIterion 4096
 profile clone PaperlandIterion NewPaperlandIterion
 profile list
 profile delete PaperlandIterion

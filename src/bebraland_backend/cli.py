@@ -32,16 +32,23 @@ def profile_create(
     mod_loader: str,
     loader_version: str,
     name: str,
+    recommended_ram_mb: int = typer.Option(
+        storage.DEFAULT_RECOMMENDED_RAM_MB,
+        "--ram-mb",
+        "--recommended-ram-mb",
+        help="Recommended launcher RAM in MB.",
+    ),
 ) -> None:
-    profile = storage.create_profile(minecraft_version, mod_loader, loader_version, name)
+    profile = storage.create_profile(minecraft_version, mod_loader, loader_version, name, recommended_ram_mb)
     console.print(f"Created [green]{profile['slug']}[/green]")
     console.print(f"Source dir: {profile['source_dir']}")
+    console.print(f"Recommended RAM: {profile['recommended_ram_mb']} MB")
 
 
 @profile_app.command("list")
 def profile_list() -> None:
     table = Table(title="BebraLand profiles")
-    for column in ("slug", "name", "minecraft", "loader", "loader version", "latest build"):
+    for column in ("slug", "name", "minecraft", "loader", "loader version", "ram MB", "latest build"):
         table.add_column(column)
     for profile in storage.list_profiles():
         table.add_row(
@@ -50,6 +57,7 @@ def profile_list() -> None:
             profile["minecraft_version"],
             profile["mod_loader"],
             profile["loader_version"],
+            str(profile.get("recommended_ram_mb", storage.DEFAULT_RECOMMENDED_RAM_MB)),
             str(profile.get("latest_build") or "-"),
         )
     console.print(table)
@@ -58,6 +66,12 @@ def profile_list() -> None:
 @profile_app.command("path")
 def profile_path(slug: str) -> None:
     console.print(storage.get_profile(slug)["source_dir"])
+
+
+@profile_app.command("ram")
+def profile_ram(slug: str, ram_mb: int) -> None:
+    profile = storage.set_recommended_ram(slug, ram_mb)
+    console.print(f"{profile['slug']} recommended RAM: {profile['recommended_ram_mb']} MB")
 
 
 @profile_app.command("clone")

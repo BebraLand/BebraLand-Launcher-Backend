@@ -20,7 +20,7 @@ class BebraLandShell(cmd.Cmd):
     prompt = "bebraland> "
 
     def do_profile(self, line: str) -> None:
-        """profile create <mc_version> <mod_loader> <loader_version> <name> | profile clone <old> <new> | profile delete <name> | profile list | profile path <name>"""
+        """profile create <mc_version> <mod_loader> <loader_version> <name> [--ram-mb MB] | profile ram <slug> <mb> | profile clone <old> <new> | profile delete <name> | profile list | profile path <name>"""
         args = shlex.split(line)
         if not args:
             console.print(self.do_profile.__doc__)
@@ -29,11 +29,27 @@ class BebraLandShell(cmd.Cmd):
         try:
             if action == "create":
                 if len(args) < 5:
-                    console.print("Usage: profile create <mc_version> <mod_loader> <loader_version> <name>")
+                    console.print("Usage: profile create <mc_version> <mod_loader> <loader_version> <name> [--ram-mb MB]")
                     return
+                ram_mb = storage.DEFAULT_RECOMMENDED_RAM_MB
+                if "--ram-mb" in args:
+                    index = args.index("--ram-mb")
+                    try:
+                        ram_mb = int(args[index + 1])
+                    except (IndexError, ValueError):
+                        console.print("Usage: profile create <mc_version> <mod_loader> <loader_version> <name> [--ram-mb MB]")
+                        return
+                    del args[index : index + 2]
                 name = " ".join(args[4:])
-                profile = storage.create_profile(args[1], args[2], args[3], name)
+                profile = storage.create_profile(args[1], args[2], args[3], name, ram_mb)
                 console.print(f"Created {profile['slug']}: {profile['source_dir']}")
+                console.print(f"Recommended RAM: {profile['recommended_ram_mb']} MB")
+            elif action == "ram":
+                if len(args) != 3:
+                    console.print("Usage: profile ram <slug> <mb>")
+                    return
+                profile = storage.set_recommended_ram(args[1], int(args[2]))
+                console.print(f"{profile['slug']} recommended RAM: {profile['recommended_ram_mb']} MB")
             elif action == "clone":
                 if len(args) < 3:
                     console.print("Usage: profile clone <old_name> <new_name>")
@@ -127,7 +143,7 @@ class BebraLandShell(cmd.Cmd):
 
 def print_profiles() -> None:
     table = Table(title="Profiles")
-    for column in ("slug", "name", "mc", "loader", "loader_ver", "latest"):
+    for column in ("slug", "name", "mc", "loader", "loader_ver", "ram_mb", "latest"):
         table.add_column(column)
     for profile in storage.list_profiles():
         table.add_row(
@@ -136,6 +152,7 @@ def print_profiles() -> None:
             profile["minecraft_version"],
             profile["mod_loader"],
             profile["loader_version"],
+            str(profile.get("recommended_ram_mb", storage.DEFAULT_RECOMMENDED_RAM_MB)),
             str(profile.get("latest_build") or "-"),
         )
     console.print(table)
