@@ -1,0 +1,16 @@
+.venv/
+.uv-cache/
+.uv-python/
+.env
+dist/
+build/
+*.spec
+__pycache__/
+*.pyc
+data/**/*.tmp
+data/profiles.json
+data/sources/
+data/builds/
+data-smoke/
+data/auth/
+data/releases/*.exe
