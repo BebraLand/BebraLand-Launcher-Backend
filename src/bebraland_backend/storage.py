@@ -13,7 +13,22 @@ from urllib.parse import quote
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-DEFAULT_WHITELIST: list[str] = []
+DEFAULT_WHITELIST: list[str] = [
+    "options.txt",
+    "optionsof.txt",
+    "servers.dat",
+    "servers.dat_old",
+    "resourcepacks/**",
+    "shaderpacks/**",
+    "config/**",
+    "logs/**",
+    "usercache.json",
+    "usernamecache.json",
+    "screenshots/**",
+    "saves/**",
+    "launcher_profiles.json",
+    "launcher_accounts.json"
+]
 DEFAULT_BLACKLIST: list[str] = []
 DEFAULT_INTERNAL_EXCLUDE = [
     ".git/**",
@@ -100,9 +115,23 @@ def load_profiles() -> dict[str, dict[str, Any]]:
     profiles = read_json(profiles_file(), {})
     if not isinstance(profiles, dict):
         raise ValueError("profiles.json must contain object")
+    dirty = False
     for profile in profiles.values():
-        profile.setdefault("whitelist", list(DEFAULT_WHITELIST))
-        profile.setdefault("blacklist", list(DEFAULT_BLACKLIST))
+        if "whitelist" not in profile:
+            profile["whitelist"] = list(DEFAULT_WHITELIST)
+            dirty = True
+        if "blacklist" not in profile:
+            profile["blacklist"] = list(DEFAULT_BLACKLIST)
+            dirty = True
+        for pattern in DEFAULT_WHITELIST:
+            if pattern not in profile["whitelist"]:
+                profile["whitelist"].append(pattern)
+                dirty = True
+        if "local_keep" in profile:
+            profile.pop("local_keep", None)
+            dirty = True
+    if dirty:
+        save_profiles(profiles)
     return profiles
 
 

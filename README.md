@@ -54,9 +54,9 @@ Frontend asks backend for latest manifest on Play. Backend rebuilds manifest fro
 
 ## Sync Rules
 
-By default every pack file is enforced: if player file is missing or hash differs, launcher downloads server version. Extra local pack files are removed.
+By default every pack file is enforced: if player file is missing or hash differs, launcher downloads server version. Extra local pack files are removed unless they match whitelist.
 
-Whitelist means "seed once": if file is missing, launcher downloads it once; if player changes it later, launcher keeps player version.
+Whitelist means "seed once and do not delete": if file is missing, launcher downloads it once; if player changes it later, launcher keeps player version. Extra local files inside whitelisted folders are kept.
 
 Blacklist means "always enforce", and it wins over whitelist.
 
