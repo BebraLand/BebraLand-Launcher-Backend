@@ -52,6 +52,7 @@ DEFAULT_INTERNAL_EXCLUDE = [
     "launcher_accounts.json",
     "usercache.json",
 ]
+VANILLA_LOADERS = {"vanilla", "minecraft", "none"}
 
 
 def data_dir() -> Path:
@@ -94,6 +95,25 @@ def normalize_recommended_ram_mb(value: Any) -> int:
             f"Recommended RAM must be between {MIN_RECOMMENDED_RAM_MB} and {MAX_RECOMMENDED_RAM_MB} MB"
         )
     return ram_mb
+
+
+def normalize_runtime(
+    minecraft_version: str,
+    mod_loader: str,
+    loader_version: str | None,
+) -> tuple[str, str, str]:
+    minecraft_version = str(minecraft_version or "").strip()
+    mod_loader = str(mod_loader or "").strip().lower()
+    loader_version = str(loader_version or "").strip()
+    if not minecraft_version:
+        raise ValueError("Minecraft version is required")
+    if not mod_loader:
+        raise ValueError("Mod loader is required")
+    if mod_loader in VANILLA_LOADERS:
+        return minecraft_version, "vanilla", ""
+    if not loader_version:
+        raise ValueError(f"Loader version required for {mod_loader}")
+    return minecraft_version, mod_loader, loader_version
 
 
 def slugify(value: str) -> str:
@@ -182,6 +202,11 @@ def create_profile(
     slug = slugify(name)
     if slug in profiles:
         raise ValueError(f"Profile already exists: {slug}")
+    minecraft_version, mod_loader, loader_version = normalize_runtime(
+        minecraft_version,
+        mod_loader,
+        loader_version,
+    )
     recommended_ram_mb = normalize_recommended_ram_mb(recommended_ram_mb)
 
     source_dir = profile_source_dir(slug)
@@ -277,6 +302,48 @@ def set_recommended_ram(slug: str, ram_mb: int) -> dict[str, Any]:
     profiles[slug]["updated_at"] = now_iso()
     save_profiles(profiles)
     return profiles[slug]
+
+
+def clear_profile_build(slug: str) -> None:
+    build_root = profile_build_dir(slug)
+    if build_root.exists():
+        shutil.rmtree(assert_inside(build_root, data_dir() / "builds"))
+
+
+def set_profile_runtime(
+    slug: str,
+    minecraft_version: str,
+    mod_loader: str,
+    loader_version: str | None,
+) -> dict[str, Any]:
+    profiles = load_profiles()
+    slug = profile_key(slug)
+    if slug not in profiles:
+        raise KeyError(f"Profile not found: {slug}")
+    minecraft_version, mod_loader, loader_version = normalize_runtime(
+        minecraft_version,
+        mod_loader,
+        loader_version,
+    )
+    profile = profiles[slug]
+    previous = (
+        profile.get("minecraft_version"),
+        profile.get("mod_loader"),
+        profile.get("loader_version"),
+    )
+    current = (minecraft_version, mod_loader, loader_version)
+    if previous == current:
+        return profile
+
+    profile["minecraft_version"] = minecraft_version
+    profile["mod_loader"] = mod_loader
+    profile["loader_version"] = loader_version
+    profile["latest_build"] = None
+    profile["updated_at"] = now_iso()
+    profiles[slug] = profile
+    clear_profile_build(slug)
+    save_profiles(profiles)
+    return profile
 
 
 def clone_profile(source_identifier: str, new_name: str) -> dict[str, Any]:

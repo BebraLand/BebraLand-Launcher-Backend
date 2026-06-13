@@ -45,6 +45,9 @@ Backend creates a pack folder only. Put server-side `mods`, `config`, `defaultco
 Other commands:
 
 ```text
+profile runtime PaperlandIterion 1.21.1 neoforge 21.1.227
+profile hotswap PaperlandIterion 1.20.1 forge 47.4.0
+profile loader PaperlandIterion 1.21.1 vanilla
 profile ram PaperlandIterion 4096
 profile clone PaperlandIterion NewPaperlandIterion
 profile list
@@ -52,6 +55,8 @@ profile delete PaperlandIterion
 build PaperlandIterion
 serve
 ```
+
+`profile runtime`, `profile hotswap`, and `profile loader` edit the same profile slug in place. Use them when you need to move a pack from Forge to NeoForge, change loader version, or change Minecraft version. The source folder is kept, the old generated build cache is cleared, and the next launcher `Play` request rebuilds the manifest with the new runtime metadata. Connected launchers receive `profiles.changed` from the running backend after `data/profiles.json` changes.
 
 Frontend talks to backend over WebSocket at `/api/v1/ws`. On Play it sends `profile.latest`; backend rebuilds manifest from current profile folder, hashes files, and frontend downloads only missing or changed pack files. Backend stores only current hash manifest in `data/builds/<slug>/latest.json`; pack files stay only in `data/sources/<slug>` and `/files/...` serves them from there. Old build folders are removed on next build. Backend never serves Minecraft `assets`, `libraries`, or `versions`.
 

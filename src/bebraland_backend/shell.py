@@ -20,7 +20,7 @@ class BebraLandShell(cmd.Cmd):
     prompt = "bebraland> "
 
     def do_profile(self, line: str) -> None:
-        """profile create <mc_version> <mod_loader> <loader_version> <name> [--ram-mb MB] | profile ram <slug> <mb> | profile clone <old> <new> | profile delete <name> | profile list | profile path <name>"""
+        """profile create <mc_version> <mod_loader> <loader_version> <name> [--ram-mb MB] | profile runtime <slug> <mc_version> <mod_loader> [loader_version] | profile ram <slug> <mb> | profile clone <old> <new> | profile delete <name> | profile list | profile path <name>"""
         args = shlex.split(line)
         if not args:
             console.print(self.do_profile.__doc__)
@@ -50,6 +50,18 @@ class BebraLandShell(cmd.Cmd):
                     return
                 profile = storage.set_recommended_ram(args[1], int(args[2]))
                 console.print(f"{profile['slug']} recommended RAM: {profile['recommended_ram_mb']} MB")
+            elif action in {"runtime", "hotswap", "loader"}:
+                if len(args) not in {4, 5}:
+                    console.print("Usage: profile runtime <slug> <mc_version> <mod_loader> [loader_version]")
+                    return
+                loader_version = args[4] if len(args) == 5 else ""
+                profile = storage.set_profile_runtime(args[1], args[2], args[3], loader_version)
+                loader_display = profile.get("loader_version") or "-"
+                console.print(
+                    f"{profile['slug']} runtime: Minecraft {profile['minecraft_version']}, "
+                    f"{profile['mod_loader']} {loader_display}"
+                )
+                console.print("Next launch rebuilds manifest and installs this runtime for players.")
             elif action == "clone":
                 if len(args) < 3:
                     console.print("Usage: profile clone <old_name> <new_name>")

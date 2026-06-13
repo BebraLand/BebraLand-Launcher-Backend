@@ -74,6 +74,47 @@ def profile_ram(slug: str, ram_mb: int) -> None:
     console.print(f"{profile['slug']} recommended RAM: {profile['recommended_ram_mb']} MB")
 
 
+def print_runtime(profile: dict[str, object]) -> None:
+    loader_version = str(profile.get("loader_version") or "-")
+    console.print(
+        f"{profile['slug']} runtime: "
+        f"Minecraft {profile['minecraft_version']}, "
+        f"{profile['mod_loader']} {loader_version}"
+    )
+    console.print("Next launch rebuilds manifest and installs this runtime for players.")
+
+
+@profile_app.command("runtime")
+def profile_runtime(
+    slug: str,
+    minecraft_version: str,
+    mod_loader: str,
+    loader_version: str = typer.Argument("", help="Required for Forge/NeoForge/Fabric; leave empty for vanilla."),
+) -> None:
+    profile = storage.set_profile_runtime(slug, minecraft_version, mod_loader, loader_version)
+    print_runtime(profile)
+
+
+@profile_app.command("hotswap")
+def profile_hotswap(
+    slug: str,
+    minecraft_version: str,
+    mod_loader: str,
+    loader_version: str = typer.Argument("", help="Required for Forge/NeoForge/Fabric; leave empty for vanilla."),
+) -> None:
+    profile_runtime(slug, minecraft_version, mod_loader, loader_version)
+
+
+@profile_app.command("loader")
+def profile_loader(
+    slug: str,
+    minecraft_version: str,
+    mod_loader: str,
+    loader_version: str = typer.Argument("", help="Required for Forge/NeoForge/Fabric; leave empty for vanilla."),
+) -> None:
+    profile_runtime(slug, minecraft_version, mod_loader, loader_version)
+
+
 @profile_app.command("clone")
 def profile_clone(source: str, new_name: str) -> None:
     profile = storage.clone_profile(source, new_name)
