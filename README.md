@@ -182,17 +182,19 @@ GET /api/v1/authlib/config
 Frontend asks over WebSocket:
 
 ```text
-{"type":"launcher.update","payload":{"current_version":"0.1.0","platform":"windows-x64"}}
+{"type":"launcher.update","payload":{"current_version":"0.0.0.4","current_update_id":"123","platform":"windows-x64"}}
 ```
 
 Write update metadata after publishing each platform binary:
 
 ```powershell
-uv run bebraland-backend release write 0.1.1 "https://github.com/ORG/REPO/releases/download/v0.1.1/BebraLandLauncher-windows-x64.exe" "SHA256_HERE" --platform windows-x64
-uv run bebraland-backend release write 0.1.1 "https://github.com/ORG/REPO/releases/download/v0.1.1/BebraLandLauncher-linux-x64" "SHA256_HERE" --platform linux-x64
-uv run bebraland-backend release write 0.1.1 "https://github.com/ORG/REPO/releases/download/v0.1.1/BebraLandLauncher-macos-arm64" "SHA256_HERE" --platform macos-arm64
-uv run bebraland-backend release write 0.1.1 "https://github.com/ORG/REPO/releases/download/v0.1.1/BebraLandLauncher-macos-x64" "SHA256_HERE" --platform macos-x64
+uv run bebraland-backend release write 0.0.0.4 "https://github.com/ORG/REPO/releases/download/launcher-123/BebraLandLauncher-windows-x64.exe" "SHA256_HERE" --platform windows-x64 --update-id 123
+uv run bebraland-backend release write 0.0.0.4 "https://github.com/ORG/REPO/releases/download/launcher-123/BebraLandLauncher-linux-x64" "SHA256_HERE" --platform linux-x64 --update-id 123
+uv run bebraland-backend release write 0.0.0.4 "https://github.com/ORG/REPO/releases/download/launcher-123/BebraLandLauncher-macos-arm64" "SHA256_HERE" --platform macos-arm64 --update-id 123
+uv run bebraland-backend release write 0.0.0.4 "https://github.com/ORG/REPO/releases/download/launcher-123/BebraLandLauncher-macos-x64" "SHA256_HERE" --platform macos-x64 --update-id 123
 ```
+
+`version` is the pretty display version. If `--update-id` is numeric, backend writes compatibility `version=9999.<update_id>` internally so old launchers still update.
 
 ## Backend runtime
 

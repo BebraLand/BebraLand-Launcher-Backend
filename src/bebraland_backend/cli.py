@@ -215,9 +215,21 @@ def release_write(
     url: str,
     sha256: str,
     platform: str = typer.Option("windows-x64", "--platform"),
+    update_id: str = typer.Option("", "--update-id"),
+    compat_version: str = typer.Option("", "--compat-version"),
+    display_version: str = typer.Option("", "--display-version"),
     notes: str = typer.Option("", "--notes"),
 ) -> None:
-    release = storage.write_release(version, url, sha256, platform, notes)
+    release = storage.write_release(
+        version,
+        url,
+        sha256,
+        platform,
+        notes,
+        display_version=display_version,
+        update_id=update_id,
+        compat_version=compat_version,
+    )
     console.print(release)
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -81,13 +82,38 @@ def profiles_payload() -> dict[str, list[dict[str, Any]]]:
     return {"profiles": [storage.public_profile(profile) for profile in storage.list_profiles()]}
 
 
-def launcher_update_payload(current_version: str, platform: str) -> dict[str, Any]:
+def numeric_update_id(value: str) -> tuple[int, ...] | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if re.fullmatch(r"\d+(?:[.-]\d+)*", text):
+        return tuple(int(part) for part in re.split(r"[.-]", text))
+    return None
+
+
+def release_is_newer(release: dict[str, Any], current_version: str, current_update_id: str = "") -> bool:
+    release_id = numeric_update_id(str(release.get("update_id") or ""))
+    current_id = numeric_update_id(current_update_id)
+    if release_id is not None and current_id is not None:
+        width = max(len(release_id), len(current_id))
+        release_parts = list(release_id) + [0] * (width - len(release_id))
+        current_parts = list(current_id) + [0] * (width - len(current_id))
+        return release_parts > current_parts
+    return str(release.get("version") or "") != current_version
+
+
+def launcher_update_payload(current_version: str, platform: str, current_update_id: str = "") -> dict[str, Any]:
     release = storage.latest_release(platform)
     if not release:
-        return {"update_available": False, "current_version": current_version}
+        return {
+            "update_available": False,
+            "current_version": current_version,
+            "current_update_id": current_update_id,
+        }
     return {
-        "update_available": release.get("version") != current_version,
+        "update_available": release_is_newer(release, current_version, current_update_id),
         "current_version": current_version,
+        "current_update_id": current_update_id,
         "release": release,
     }
 
@@ -220,9 +246,10 @@ def azuriom_logout(payload: AzuriomToken) -> dict[str, Any]:
 @app.get("/api/v1/launcher/update")
 def launcher_update(
     current_version: str = Query("0.0.0"),
+    current_update_id: str = Query(""),
     platform: str = Query("windows-x64"),
 ) -> dict[str, Any]:
-    return launcher_update_payload(current_version, platform)
+    return launcher_update_payload(current_version, platform, current_update_id)
 
 
 async def websocket_result(message_type: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -262,6 +289,7 @@ async def websocket_result(message_type: str, payload: dict[str, Any]) -> dict[s
             launcher_update_payload,
             str(payload.get("current_version") or "0.0.0"),
             str(payload.get("platform") or "windows-x64"),
+            str(payload.get("current_update_id") or ""),
         )
     raise ValueError(f"Unknown websocket message type: {message_type}")
 

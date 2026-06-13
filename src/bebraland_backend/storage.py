@@ -805,18 +805,34 @@ def release_file(platform: str) -> Path:
     return data_dir() / "releases" / f"latest-{normalized}.json"
 
 
-def write_release(version: str, url: str, sha256: str, platform: str, notes: str = "") -> dict[str, Any]:
+def write_release(
+    version: str,
+    url: str,
+    sha256: str,
+    platform: str,
+    notes: str = "",
+    display_version: str = "",
+    update_id: str = "",
+    compat_version: str = "",
+) -> dict[str, Any]:
     platform = str(platform or "").strip().lower()
     if not platform:
         raise ValueError("Release platform is required")
+    display_version = str(display_version or version or "").strip().lstrip("vV")
+    update_id = str(update_id or "").strip()
+    compat_version = str(compat_version or "").strip().lstrip("vV")
+    update_version = compat_version or (f"9999.{update_id}" if update_id.isdigit() else str(version).strip().lstrip("vV"))
     release = {
-        "version": version,
+        "version": update_version,
+        "display_version": display_version,
         "platform": platform,
         "url": url,
         "sha256": sha256,
         "notes": notes,
         "created_at": now_iso(),
     }
+    if update_id:
+        release["update_id"] = update_id
     write_json(release_file(platform), release)
 
     index_path = data_dir() / "releases" / "latest.json"
