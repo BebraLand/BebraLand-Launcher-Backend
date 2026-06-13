@@ -82,8 +82,8 @@ def profiles_payload() -> dict[str, list[dict[str, Any]]]:
 
 
 def launcher_update_payload(current_version: str, platform: str) -> dict[str, Any]:
-    release = storage.latest_release()
-    if not release or release.get("platform", "windows") != platform:
+    release = storage.latest_release(platform)
+    if not release:
         return {"update_available": False, "current_version": current_version}
     return {
         "update_available": release.get("version") != current_version,
@@ -220,7 +220,7 @@ def azuriom_logout(payload: AzuriomToken) -> dict[str, Any]:
 @app.get("/api/v1/launcher/update")
 def launcher_update(
     current_version: str = Query("0.0.0"),
-    platform: str = Query("windows"),
+    platform: str = Query("windows-x64"),
 ) -> dict[str, Any]:
     return launcher_update_payload(current_version, platform)
 
@@ -261,7 +261,7 @@ async def websocket_result(message_type: str, payload: dict[str, Any]) -> dict[s
         return await asyncio.to_thread(
             launcher_update_payload,
             str(payload.get("current_version") or "0.0.0"),
-            str(payload.get("platform") or "windows"),
+            str(payload.get("platform") or "windows-x64"),
         )
     raise ValueError(f"Unknown websocket message type: {message_type}")
 

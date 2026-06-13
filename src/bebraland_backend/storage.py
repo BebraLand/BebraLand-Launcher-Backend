@@ -780,7 +780,35 @@ def file_for(slug: str, build_id: str, file_path: str) -> Path:
     return target
 
 
+def release_platform_aliases(platform: str) -> list[str]:
+    platform = str(platform or "").strip().lower()
+    aliases = [platform] if platform else []
+    if platform == "windows":
+        aliases.append("windows-x64")
+    elif platform == "linux":
+        aliases.append("linux-x64")
+    elif platform == "macos":
+        aliases.extend(["macos-arm64", "macos-x64", "darwin"])
+    elif platform.startswith("windows-"):
+        aliases.append("windows")
+    elif platform.startswith("macos-"):
+        aliases.extend(["macos", "darwin"])
+    elif platform.startswith("linux-"):
+        aliases.append("linux")
+    return aliases
+
+
+def release_file(platform: str) -> Path:
+    normalized = str(platform or "").strip().lower()
+    if not normalized:
+        raise ValueError("Release platform is required")
+    return data_dir() / "releases" / f"latest-{normalized}.json"
+
+
 def write_release(version: str, url: str, sha256: str, platform: str, notes: str = "") -> dict[str, Any]:
+    platform = str(platform or "").strip().lower()
+    if not platform:
+        raise ValueError("Release platform is required")
     release = {
         "version": version,
         "platform": platform,
@@ -789,11 +817,45 @@ def write_release(version: str, url: str, sha256: str, platform: str, notes: str
         "notes": notes,
         "created_at": now_iso(),
     }
-    write_json(data_dir() / "releases" / "latest.json", release)
+    write_json(release_file(platform), release)
+
+    index_path = data_dir() / "releases" / "latest.json"
+    index = read_json(index_path, {})
+    if not isinstance(index, dict) or not isinstance(index.get("releases"), dict):
+        old_release = index if isinstance(index, dict) and index.get("url") else None
+        index = {"version": version, "releases": {}, "created_at": now_iso()}
+        if old_release and old_release.get("platform"):
+            index["releases"][str(old_release["platform"]).strip().lower()] = old_release
+    index["version"] = version
+    index["updated_at"] = release["created_at"]
+    index.setdefault("created_at", release["created_at"])
+    index["releases"][platform] = release
+    write_json(index_path, index)
     return release
 
 
-def latest_release() -> dict[str, Any] | None:
+def latest_release(platform: str | None = None) -> dict[str, Any] | None:
+    if platform:
+        for alias in release_platform_aliases(platform):
+            path = release_file(alias)
+            if path.exists():
+                return read_json(path, {})
+
+        index_path = data_dir() / "releases" / "latest.json"
+        if index_path.exists():
+            index = read_json(index_path, {})
+            releases = index.get("releases") if isinstance(index, dict) else None
+            if isinstance(releases, dict):
+                for alias in release_platform_aliases(platform):
+                    release = releases.get(alias)
+                    if isinstance(release, dict):
+                        return release
+            if isinstance(index, dict) and index.get("url"):
+                release_platform = str(index.get("platform") or "windows").strip().lower()
+                if release_platform in release_platform_aliases(platform):
+                    return index
+        return None
+
     path = data_dir() / "releases" / "latest.json"
     if not path.exists():
         return None

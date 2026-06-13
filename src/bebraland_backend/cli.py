@@ -214,7 +214,7 @@ def release_write(
     version: str,
     url: str,
     sha256: str,
-    platform: str = typer.Option("windows", "--platform"),
+    platform: str = typer.Option("windows-x64", "--platform"),
     notes: str = typer.Option("", "--notes"),
 ) -> None:
     release = storage.write_release(version, url, sha256, platform, notes)
@@ -222,8 +222,8 @@ def release_write(
 
 
 @release_app.command("show")
-def release_show() -> None:
-    release = storage.latest_release()
+def release_show(platform: str | None = typer.Option(None, "--platform")) -> None:
+    release = storage.latest_release(platform)
     console.print(release or "No release metadata yet")
 
 
