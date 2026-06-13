@@ -78,6 +78,51 @@ profile blacklist-add paperland-iterion config/locked.json
 
 Internal exclude always skips `.git`, cache, temp, logs, crash reports, and Minecraft client folders: `assets`, `libraries`, `versions`, `runtime`, `runtimes`.
 
+## Optional Mods
+
+Optional mods are configured directly in `data/profiles.json` per profile. Files stay in the normal source folder, but matching optional files are only installed when the player enables that optional mod in the launcher.
+
+Example:
+
+```json
+{
+  "paperland-iterion": {
+    "optional_mods": [
+      {
+        "id": "voxy",
+        "name": "Voxy",
+        "description": "Client-side distant terrain renderer.",
+        "default_enabled": true,
+        "files": ["mods/voxy-0.2.14-alpha-c54de23.jar"]
+      },
+      {
+        "id": "voxy-server",
+        "name": "Voxy Server",
+        "description": "Server helper for Voxy.",
+        "default_enabled": false,
+        "files": ["mods/VoxyServer-1.1.5.jar"],
+        "requires": ["voxy"]
+      }
+    ]
+  }
+}
+```
+
+Fields:
+
+- `id`: stable id saved by launcher settings.
+- `name`: label shown to players.
+- `description`: shown in launcher details/tooltip.
+- `default_enabled`: default for players without saved choice.
+- `files`: exact file paths or path patterns inside the pack source folder.
+- `requires`: optional mod ids to auto-enable with this mod.
+- `conflicts`: optional mod ids to turn off when this mod is enabled.
+- `keep_on_disable`: keep matched files when player disables the mod; default is `false`.
+
+Aliases also work: `paths`/`patterns` for `files`, `depends_on`/`dependencies` for `requires`, and `enabled_by_default`/`default` for `default_enabled`.
+
+For best protection, use exact jar paths like `mods/voxy-0.2.14-alpha-c54de23.jar`. Wildcards like `mods/voxy-*.jar` still work, but they cannot be pinned safely because they may match a new file. Exact optional files are pinned by the previous `data/builds/<slug>/latest.json`: if the same exact path changes later, `build` fails until you remove the old build manifest intentionally or change the file path.
+
 ## Azuriom auth
 
 Enable AzAuth in Azuriom admin: Settings -> Authentication.

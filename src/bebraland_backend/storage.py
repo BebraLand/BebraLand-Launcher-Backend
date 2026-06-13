@@ -53,6 +53,7 @@ DEFAULT_INTERNAL_EXCLUDE = [
     "usercache.json",
 ]
 VANILLA_LOADERS = {"vanilla", "minecraft", "none"}
+OPTIONAL_MOD_ID_RE = re.compile(r"^[a-zA-Z0-9_.-]+$")
 
 
 def data_dir() -> Path:
@@ -95,6 +96,133 @@ def normalize_recommended_ram_mb(value: Any) -> int:
             f"Recommended RAM must be between {MIN_RECOMMENDED_RAM_MB} and {MAX_RECOMMENDED_RAM_MB} MB"
         )
     return ram_mb
+
+
+def normalize_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on", "enabled"}:
+            return True
+        if normalized in {"0", "false", "no", "off", "disabled"}:
+            return False
+    return bool(value)
+
+
+def normalize_string_list(value: Any, field_name: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be a list")
+    result: list[str] = []
+    for item in value:
+        text = str(item or "").strip()
+        if not text:
+            continue
+        if text not in result:
+            result.append(text)
+    return result
+
+
+def normalize_pack_pattern(value: Any) -> str:
+    return str(value or "").replace("\\", "/").strip("/")
+
+
+def normalize_optional_mod_files(raw_mod: dict[str, Any], mod_id: str) -> list[str]:
+    raw_files = raw_mod.get("files") or raw_mod.get("paths") or raw_mod.get("patterns")
+    if raw_files is None:
+        raw_files = []
+    if not isinstance(raw_files, list):
+        raise ValueError(f"optional_mods[{mod_id}].files must be a list")
+
+    files: list[str] = []
+    for index, item in enumerate(raw_files, start=1):
+        if isinstance(item, dict):
+            path = normalize_pack_pattern(item.get("path") or item.get("file") or item.get("pattern"))
+            if not path:
+                raise ValueError(f"optional_mods[{mod_id}].files[{index}].path is required")
+        else:
+            path = normalize_pack_pattern(item)
+        if not path:
+            continue
+        if path not in files:
+            files.append(path)
+    return files
+
+
+def normalize_optional_mod_id(value: Any, field_name: str = "optional mod id") -> str:
+    mod_id = str(value or "").strip()
+    if not mod_id:
+        raise ValueError(f"{field_name} is required")
+    if not OPTIONAL_MOD_ID_RE.fullmatch(mod_id):
+        raise ValueError(f"{field_name} must contain only letters, numbers, dots, underscores, and dashes")
+    return mod_id
+
+
+def normalize_optional_mods(value: Any) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("optional_mods must be a list")
+
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, raw_mod in enumerate(value, start=1):
+        if not isinstance(raw_mod, dict):
+            raise ValueError(f"optional_mods[{index}] must be an object")
+        mod_id = normalize_optional_mod_id(raw_mod.get("id") or raw_mod.get("slug") or raw_mod.get("key"))
+        if mod_id in seen:
+            raise ValueError(f"Duplicate optional mod id: {mod_id}")
+        seen.add(mod_id)
+
+        files = normalize_optional_mod_files(raw_mod, mod_id)
+        if not files:
+            raise ValueError(f"optional_mods[{mod_id}].files must not be empty")
+
+        requires = [
+            normalize_optional_mod_id(item, f"optional_mods[{mod_id}].requires")
+            for item in normalize_string_list(
+                raw_mod.get("requires") or raw_mod.get("depends_on") or raw_mod.get("dependencies"),
+                f"optional_mods[{mod_id}].requires",
+            )
+        ]
+        conflicts = [
+            normalize_optional_mod_id(item, f"optional_mods[{mod_id}].conflicts")
+            for item in normalize_string_list(raw_mod.get("conflicts"), f"optional_mods[{mod_id}].conflicts")
+        ]
+        if mod_id in requires:
+            raise ValueError(f"optional_mods[{mod_id}] cannot require itself")
+        if mod_id in conflicts:
+            raise ValueError(f"optional_mods[{mod_id}] cannot conflict with itself")
+
+        result.append(
+            {
+                "id": mod_id,
+                "name": str(raw_mod.get("name") or mod_id).strip() or mod_id,
+                "description": str(raw_mod.get("description") or "").strip(),
+                "default_enabled": normalize_bool(
+                    raw_mod.get("default_enabled", raw_mod.get("enabled_by_default", raw_mod.get("default"))),
+                    False,
+                ),
+                "files": files,
+                "requires": requires,
+                "conflicts": conflicts,
+                "keep_on_disable": normalize_bool(raw_mod.get("keep_on_disable"), False),
+            }
+        )
+
+    known = {item["id"] for item in result}
+    for item in result:
+        for required_id in item["requires"]:
+            if required_id not in known:
+                raise ValueError(f"optional_mods[{item['id']}] requires unknown optional mod: {required_id}")
+        for conflict_id in item["conflicts"]:
+            if conflict_id not in known:
+                raise ValueError(f"optional_mods[{item['id']}] conflicts with unknown optional mod: {conflict_id}")
+    return result
 
 
 def normalize_runtime(
@@ -167,6 +295,11 @@ def load_profiles() -> dict[str, dict[str, Any]]:
             profile["recommended_ram_mb"] = DEFAULT_RECOMMENDED_RAM_MB
         if old_ram_mb != profile["recommended_ram_mb"]:
             dirty = True
+        old_optional_mods = profile.get("optional_mods")
+        optional_mods = normalize_optional_mods(old_optional_mods)
+        if old_optional_mods != optional_mods:
+            profile["optional_mods"] = optional_mods
+            dirty = True
         for pattern in DEFAULT_WHITELIST:
             if pattern not in profile["whitelist"]:
                 profile["whitelist"].append(pattern)
@@ -224,6 +357,7 @@ def create_profile(
         "whitelist": list(DEFAULT_WHITELIST),
         "blacklist": list(DEFAULT_BLACKLIST),
         "recommended_ram_mb": recommended_ram_mb,
+        "optional_mods": [],
         "latest_build": None,
         "created_at": now_iso(),
         "updated_at": now_iso(),
@@ -256,6 +390,7 @@ def public_profile(profile: dict[str, Any]) -> dict[str, Any]:
         "recommended_ram_mb": normalize_recommended_ram_mb(
             profile.get("recommended_ram_mb", DEFAULT_RECOMMENDED_RAM_MB)
         ),
+        "optional_mods": normalize_optional_mods(profile.get("optional_mods")),
         "latest_build": profile.get("latest_build"),
         "created_at": profile["created_at"],
         "updated_at": profile["updated_at"],
@@ -438,6 +573,63 @@ def file_mode(path: str, profile: dict[str, Any]) -> str:
     return "enforce"
 
 
+def optional_mod_for_path(path: str, optional_mods: list[dict[str, Any]]) -> dict[str, Any] | None:
+    matches = [mod for mod in optional_mods if any(matches_pattern(path, pattern) for pattern in mod.get("files") or [])]
+    if len(matches) > 1:
+        ids = ", ".join(mod["id"] for mod in matches)
+        raise ValueError(f"File {path} matches multiple optional mods: {ids}")
+    return matches[0] if matches else None
+
+
+def is_exact_file_pattern(pattern: str, path: str) -> bool:
+    normalized = normalize_pack_pattern(pattern)
+    return normalized == path and not any(char in normalized for char in "*?[]")
+
+
+def optional_mod_exact_path(optional_mod: dict[str, Any], path: str) -> str | None:
+    for pattern in optional_mod.get("files") or []:
+        normalized = normalize_pack_pattern(pattern)
+        if is_exact_file_pattern(normalized, path):
+            return normalized
+    return None
+
+
+def previous_optional_file_hashes(slug: str) -> dict[tuple[str, str], str]:
+    path = profile_build_dir(slug) / "latest.json"
+    if not path.exists():
+        return {}
+    manifest = read_json(path, {})
+    result: dict[tuple[str, str], str] = {}
+    for item in manifest.get("files", []):
+        if not isinstance(item, dict):
+            continue
+        optional_mod_id = str(item.get("optional_mod") or "").strip()
+        rel = normalize_pack_pattern(item.get("path"))
+        sha256 = str(item.get("sha256") or "").strip().lower()
+        if optional_mod_id and rel and len(sha256) == 64:
+            result[(optional_mod_id, rel)] = sha256
+    return result
+
+
+def verify_optional_file_pin(
+    optional_mod: dict[str, Any],
+    path: str,
+    file_hash: str,
+    previous_hashes: dict[tuple[str, str], str],
+) -> None:
+    exact_path = optional_mod_exact_path(optional_mod, path)
+    if not exact_path:
+        return
+
+    expected_hash = previous_hashes.get((str(optional_mod["id"]), exact_path))
+    if expected_hash and expected_hash != file_hash:
+        raise ValueError(
+            f"Optional mod {optional_mod['id']} pinned hash mismatch for {path}: "
+            f"expected {expected_hash}, got {file_hash}. "
+            "If this file update is intentional, remove the previous build manifest or use a new exact file path."
+        )
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -466,12 +658,24 @@ def build_profile(slug: str, base_url: str) -> dict[str, Any]:
     if slug not in profiles:
         raise KeyError(f"Profile not found: {slug}")
     profile = profiles[slug]
+    optional_mods = normalize_optional_mods(profile.get("optional_mods"))
+    previous_optional_hashes = previous_optional_file_hashes(slug)
     entries: list[dict[str, Any]] = []
 
     for source, rel in iter_source_files(profile):
         file_hash = sha256_file(source)
         stat = source.stat()
-        entries.append({"path": rel, "size": stat.st_size, "sha256": file_hash, "mode": file_mode(rel, profile)})
+        entry = {"path": rel, "size": stat.st_size, "sha256": file_hash, "mode": file_mode(rel, profile)}
+        optional_mod = optional_mod_for_path(rel, optional_mods)
+        if optional_mod:
+            verify_optional_file_pin(optional_mod, rel, file_hash, previous_optional_hashes)
+            entry["optional_mod"] = optional_mod["id"]
+            if optional_mod.get("keep_on_disable"):
+                entry["optional_keep_on_disable"] = True
+        entries.append(entry)
+
+    if profile.get("optional_mods") != optional_mods:
+        profile["optional_mods"] = optional_mods
 
     digest = hashlib.sha256()
     for value in (
@@ -480,6 +684,7 @@ def build_profile(slug: str, base_url: str) -> dict[str, Any]:
         profile["mod_loader"],
         profile["loader_version"],
         str(profile.get("recommended_ram_mb", DEFAULT_RECOMMENDED_RAM_MB)),
+        json.dumps(optional_mods, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
     ):
         digest.update(value.encode("utf-8"))
         digest.update(b"\0")
@@ -488,6 +693,8 @@ def build_profile(slug: str, base_url: str) -> dict[str, Any]:
         digest.update(b"\0")
         digest.update(entry["sha256"].encode("ascii"))
         digest.update(entry["mode"].encode("ascii"))
+        digest.update(str(entry.get("optional_mod") or "").encode("utf-8"))
+        digest.update(str(bool(entry.get("optional_keep_on_disable"))).encode("ascii"))
         digest.update(str(entry["size"]).encode("ascii"))
         digest.update(b"\0")
 
@@ -528,6 +735,7 @@ def build_profile(slug: str, base_url: str) -> dict[str, Any]:
             "blacklist": profile.get("blacklist", []),
             "internal_exclude": list(DEFAULT_INTERNAL_EXCLUDE),
         },
+        "optional_mods": optional_mods,
         "files": public_entries,
     }
     write_json(build_root / "latest.json", manifest)
