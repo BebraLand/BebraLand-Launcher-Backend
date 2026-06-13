@@ -652,6 +652,66 @@ def iter_source_files(profile: dict[str, Any]) -> list[tuple[Path, str]]:
     return result
 
 
+def profile_manifest_signature(profile: dict[str, Any], optional_mods: list[dict[str, Any]]) -> str:
+    digest = hashlib.sha256()
+    for value in (
+        profile["slug"],
+        profile["minecraft_version"],
+        profile["mod_loader"],
+        profile["loader_version"],
+        str(profile.get("recommended_ram_mb", DEFAULT_RECOMMENDED_RAM_MB)),
+        json.dumps(profile.get("whitelist", []), sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+        json.dumps(profile.get("blacklist", []), sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+        json.dumps(optional_mods, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+    ):
+        digest.update(value.encode("utf-8"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def source_file_signature(source_files: list[tuple[Path, str]]) -> str:
+    digest = hashlib.sha256()
+    for source, rel in source_files:
+        stat = source.stat()
+        digest.update(rel.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(stat.st_size).encode("ascii"))
+        digest.update(b"\0")
+        digest.update(str(stat.st_mtime_ns).encode("ascii"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def cached_manifest_if_fresh(
+    slug: str,
+    profile_signature: str,
+    source_signature: str,
+    base_url: str,
+) -> dict[str, Any] | None:
+    path = profile_build_dir(slug) / "latest.json"
+    if not path.exists():
+        return None
+    manifest = read_json(path, {})
+    if (
+        manifest.get("profile_signature") != profile_signature
+        or manifest.get("source_signature") != source_signature
+    ):
+        return None
+
+    base = base_url.rstrip("/")
+    cached_files = manifest.get("files") or []
+    rewritten_files: list[dict[str, Any]] = []
+    for item in cached_files:
+        if not isinstance(item, dict):
+            return None
+        rel = str(item.get("path") or "")
+        if not rel:
+            return None
+        encoded_path = "/".join(quote(part) for part in rel.split("/"))
+        rewritten_files.append({**item, "url": f"{base}/files/{quote(slug)}/{manifest['build_id']}/{encoded_path}"})
+    return {**manifest, "files": rewritten_files}
+
+
 def build_profile(slug: str, base_url: str) -> dict[str, Any]:
     profiles = load_profiles()
     slug = profile_key(slug)
@@ -659,10 +719,17 @@ def build_profile(slug: str, base_url: str) -> dict[str, Any]:
         raise KeyError(f"Profile not found: {slug}")
     profile = profiles[slug]
     optional_mods = normalize_optional_mods(profile.get("optional_mods"))
+    source_files = iter_source_files(profile)
+    profile_signature = profile_manifest_signature(profile, optional_mods)
+    source_signature = source_file_signature(source_files)
+    cached = cached_manifest_if_fresh(slug, profile_signature, source_signature, base_url)
+    if cached:
+        return cached
+
     previous_optional_hashes = previous_optional_file_hashes(slug)
     entries: list[dict[str, Any]] = []
 
-    for source, rel in iter_source_files(profile):
+    for source, rel in source_files:
         file_hash = sha256_file(source)
         stat = source.stat()
         entry = {"path": rel, "size": stat.st_size, "sha256": file_hash, "mode": file_mode(rel, profile)}
@@ -727,6 +794,8 @@ def build_profile(slug: str, base_url: str) -> dict[str, Any]:
         "profile": public_profile(profile),
         "build_id": build_id,
         "content_hash": content_hash,
+        "profile_signature": profile_signature,
+        "source_signature": source_signature,
         "created_at": build_time,
         "file_count": len(public_entries),
         "total_size": sum(item["size"] for item in public_entries),
