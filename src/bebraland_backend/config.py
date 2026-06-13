@@ -21,3 +21,12 @@ def server_port() -> int:
 def public_base_url() -> str:
     fallback = f"http://{server_host()}:{server_port()}"
     return os.environ.get("BEBRALAND_PUBLIC_BASE_URL", fallback).rstrip("/")
+
+
+def authlib_server_name() -> str:
+    return os.environ.get("BEBRALAND_AUTHLIB_SERVER_NAME", "BebraLand")
+
+
+def skin_domains() -> list[str]:
+    value = os.environ.get("BEBRALAND_SKIN_DOMAINS", "")
+    return [item.strip() for item in value.split(",") if item.strip()]

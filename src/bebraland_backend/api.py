@@ -5,11 +5,11 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from . import __version__, config
-from . import auth, storage
+from . import auth, minecraft_profile, storage, yggdrasil
 
 
 class AzuriomLogin(BaseModel):
@@ -74,6 +74,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(yggdrasil.router)
 
 
 def profiles_payload() -> dict[str, list[dict[str, Any]]]:
@@ -107,6 +108,14 @@ def storage_signature() -> tuple[tuple[str, int, int], ...]:
     return tuple(signature)
 
 
+@app.get("/")
+def root() -> JSONResponse:
+    return JSONResponse(
+        {"status": "ok", "version": __version__},
+        headers={"X-Authlib-Injector-API-Location": "/api/yggdrasil/"},
+    )
+
+
 async def broadcast_profiles(reason: str) -> None:
     payload = await asyncio.to_thread(profiles_payload)
     await manager.broadcast({"type": "profiles.changed", "reason": reason, **payload})
@@ -138,6 +147,11 @@ async def stop_realtime_watcher() -> None:
 @app.get("/api/v1/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "version": __version__}
+
+
+@app.get("/api/v1/authlib/config")
+def authlib_config() -> dict[str, Any]:
+    return yggdrasil.server_config_payload()
 
 
 @app.get("/api/v1/profiles")
@@ -183,10 +197,12 @@ def azuriom_login(payload: AzuriomLogin) -> dict[str, Any]:
 def azuriom_verify(payload: AzuriomToken) -> dict[str, Any]:
     try:
         verified = auth.azuriom_verify(payload.access_token)
+        user = auth.normalize_azuriom_user(verified)
         return {
             "status": "success",
             "provider": "azuriom",
-            "user": auth.normalize_azuriom_user(verified),
+            "user": user,
+            "minecraft_profile": minecraft_profile.profile_from_user(user),
             "raw": verified,
         }
     except auth.AzuriomAuthError as exc:
@@ -231,10 +247,12 @@ async def websocket_result(message_type: str, payload: dict[str, Any]) -> dict[s
     if message_type == "auth.azuriom.verify":
         access_token = str(payload.get("access_token") or "")
         verified = await asyncio.to_thread(auth.azuriom_verify, access_token)
+        user = auth.normalize_azuriom_user(verified)
         return {
             "status": "success",
             "provider": "azuriom",
-            "user": auth.normalize_azuriom_user(verified),
+            "user": user,
+            "minecraft_profile": minecraft_profile.profile_from_user(user),
             "raw": verified,
         }
     if message_type == "auth.azuriom.logout":

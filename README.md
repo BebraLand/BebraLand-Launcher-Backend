@@ -21,6 +21,8 @@ BEBRALAND_HOST=127.0.0.1
 BEBRALAND_PORT=8765
 BEBRALAND_PUBLIC_BASE_URL=http://127.0.0.1:8765
 AZURIOM_URL=https://your-azuriom-site.example
+BEBRALAND_AUTHLIB_SERVER_NAME=BebraLand
+BEBRALAND_SKIN_DOMAINS=
 ```
 
 ## Profiles
@@ -88,6 +90,42 @@ AZURIOM_URL=https://your-azuriom-site.example
 ```
 
 Frontend sends email/password/2FA to backend. Backend authenticates against Azuriom and verifies token server-side.
+
+## authlib-injector / server whitelist
+
+Backend exposes an authlib-injector compatible Yggdrasil API at:
+
+```text
+<BEBRALAND_PUBLIC_BASE_URL>/api/yggdrasil/
+```
+
+Launcher uses this API automatically. It launches Minecraft with the Azuriom access token, the Azuriom username, and a stable Minecraft UUID. The backend verifies that token when Minecraft joins a server. If a player uses normal Minecraft without this launcher, the join check is never registered in backend, so a server using this authlib API rejects the login.
+
+Install the Azuriom Skin API resource and enable capes there if you need capes. Skins/capes are read from:
+
+```text
+GET <AZURIOM_URL>/api/skin-api/profile/{user_name}
+```
+
+For the Minecraft server:
+
+1. Download `authlib-injector.jar` from `https://authlib-injector.yushi.moe/`.
+2. Put it near your server jar.
+3. Set `online-mode=true` in `server.properties`.
+4. For Minecraft 1.19+, set `enforce-secure-profile=true`.
+5. Add the javaagent before `-jar`:
+
+```powershell
+java -javaagent:authlib-injector.jar=https://your-backend.example/api/yggdrasil/ -jar server.jar nogui
+```
+
+Backend also exposes the exact server config:
+
+```text
+GET /api/v1/authlib/config
+```
+
+`BEBRALAND_PUBLIC_BASE_URL` must be a public URL reachable by the Minecraft server and players. Backend generates and stores its texture signing key in `data/authlib/rsa_key.json`; keep that file stable between restarts.
 
 ## Launcher updates
 

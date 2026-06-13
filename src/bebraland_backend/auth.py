@@ -8,7 +8,7 @@ import urllib.request
 from typing import Any
 from urllib.parse import urljoin
 
-from . import config  # noqa: F401 - loads .env once for auth providers
+from . import config, minecraft_profile  # noqa: F401 - loads .env once for auth providers
 
 
 _tokens: dict[str, dict[str, Any]] = {}
@@ -103,6 +103,7 @@ def azuriom_login(email: str, password: str, code: str | None = None) -> dict[st
         "token_type": "bearer",
         "provider": "azuriom",
         "user": user,
+        "minecraft_profile": minecraft_profile.profile_from_user(user),
         "raw": verified,
     }
 
