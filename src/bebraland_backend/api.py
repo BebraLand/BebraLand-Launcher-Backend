@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from . import __version__, config
-from . import auth, minecraft_profile, storage, yggdrasil
+from . import auth, minecraft_profile, skins, storage, yggdrasil
 
 
 class AzuriomLogin(BaseModel):
@@ -124,6 +124,9 @@ def storage_signature() -> tuple[tuple[str, int, int], ...]:
     builds_root = storage.data_dir() / "builds"
     if builds_root.exists():
         watched.extend(build_root / "latest.json" for build_root in builds_root.iterdir() if build_root.is_dir())
+    assets_root = storage.profile_assets_root()
+    if assets_root.exists():
+        watched.extend(path for path in assets_root.rglob("*") if path.is_file())
     signature: list[tuple[str, int, int]] = []
     for path in sorted(watched):
         try:
@@ -211,6 +214,14 @@ def file(slug: str, build_id: str, file_path: str) -> FileResponse:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@app.get("/assets/profiles/{slug}/{file_name}")
+def profile_asset(slug: str, file_name: str) -> FileResponse:
+    try:
+        return FileResponse(storage.profile_asset_file(slug, file_name))
+    except (FileNotFoundError, KeyError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @app.post("/api/v1/auth/azuriom/login")
 def azuriom_login(payload: AzuriomLogin) -> dict[str, Any]:
     try:
@@ -284,6 +295,18 @@ async def websocket_result(message_type: str, payload: dict[str, Any]) -> dict[s
         }
     if message_type == "auth.azuriom.logout":
         return await asyncio.to_thread(auth.azuriom_logout, str(payload.get("access_token") or ""))
+    if message_type == "skin.profile":
+        username = str(payload.get("username") or "")
+        if not username:
+            raise ValueError("username is required")
+        return await asyncio.to_thread(skins.profile_payload, username)
+    if message_type in {"skin.upload", "cape.upload"}:
+        access_token = str(payload.get("access_token") or "")
+        image_base64 = str(payload.get("image_base64") or "")
+        filename = str(payload.get("filename") or "texture.png")
+        texture_type = "skin" if message_type == "skin.upload" else "cape"
+        image = skins.decode_image_base64(image_base64)
+        return await asyncio.to_thread(skins.upload_texture, texture_type, access_token, image, filename)
     if message_type == "launcher.update":
         return await asyncio.to_thread(
             launcher_update_payload,
@@ -296,6 +319,8 @@ async def websocket_result(message_type: str, payload: dict[str, Any]) -> dict[s
 
 def websocket_error_payload(exc: Exception) -> dict[str, Any]:
     if isinstance(exc, auth.AzuriomAuthError):
+        return {"status_code": exc.status_code, "detail": exc.payload}
+    if isinstance(exc, skins.SkinApiError):
         return {"status_code": exc.status_code, "detail": exc.payload}
     if isinstance(exc, (FileNotFoundError, KeyError)):
         return {"status_code": 404, "detail": str(exc)}

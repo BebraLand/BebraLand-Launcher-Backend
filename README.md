@@ -40,7 +40,7 @@ profile create 1.21.1 neoforge 21.1.227 PaperlandIterion --ram-mb 2048
 profile path PaperlandIterion
 ```
 
-Backend creates a pack folder only. Put server-side `mods`, `config`, `defaultconfigs`, and other pack files into printed folder. Minecraft client, assets, libraries, and modloader are installed by frontend on each player's PC through `minecraft-launcher-lib`. `--ram-mb` stores recommended RAM for launcher UI; default is `2048`.
+Backend creates a pack folder only. Put server-side `mods`, `config`, `defaultconfigs`, and other pack files into printed folder. Minecraft client, assets, libraries, and modloader are installed by frontend on each player's PC through `minecraft-launcher-lib`. `--ram-mb` stores recommended RAM for launcher UI; default is `2048`. Profile artwork can be set at create time with `--icon` and `--background`.
 
 Other commands:
 
@@ -49,12 +49,22 @@ profile runtime PaperlandIterion 1.21.1 neoforge 21.1.227
 profile hotswap PaperlandIterion 1.20.1 forge 47.4.0
 profile loader PaperlandIterion 1.21.1 vanilla
 profile ram PaperlandIterion 4096
+profile assets PaperlandIterion --icon C:\packs\icon.png --background C:\packs\background.jpg
 profile clone PaperlandIterion NewPaperlandIterion
 profile list
 profile delete PaperlandIterion
 build PaperlandIterion
 serve
 ```
+
+Profile assets are copied into `data/assets/profiles/<slug>/` and served as:
+
+```text
+/assets/profiles/<slug>/icon.png
+/assets/profiles/<slug>/background.jpg
+```
+
+`GET /api/v1/profiles` and the websocket `profiles.list` response include `icon_url` and `background_url`. If a profile has no custom background, the frontend uses its bundled `background_for_launcher.jpg`.
 
 `profile runtime`, `profile hotswap`, and `profile loader` edit the same profile slug in place. Use them when you need to move a pack from Forge to NeoForge, change loader version, or change Minecraft version. The source folder is kept, the old generated build cache is cleared, and the next launcher `Play` request rebuilds the manifest with the new runtime metadata. Connected launchers receive `profiles.changed` from the running backend after `data/profiles.json` changes.
 
@@ -156,6 +166,16 @@ Install the Azuriom Skin API resource and enable capes there if you need capes. 
 ```text
 GET <AZURIOM_URL>/api/skin-api/profile/{user_name}
 ```
+
+The launcher account page can also upload textures through the backend websocket:
+
+```text
+skin.profile
+skin.upload
+cape.upload
+```
+
+The backend forwards uploads to Azuriom Skin API using multipart POST with the user's Azuriom access token.
 
 For the Minecraft server:
 

@@ -54,6 +54,8 @@ DEFAULT_INTERNAL_EXCLUDE = [
 ]
 VANILLA_LOADERS = {"vanilla", "minecraft", "none"}
 OPTIONAL_MOD_ID_RE = re.compile(r"^[a-zA-Z0-9_.-]+$")
+PROFILE_ASSET_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+PROFILE_ASSET_KINDS = {"icon", "background"}
 
 
 def data_dir() -> Path:
@@ -65,8 +67,52 @@ def profiles_file() -> Path:
 
 
 def ensure_data_dirs() -> None:
-    for child in ("sources", "builds", "releases"):
+    for child in ("sources", "builds", "releases", "assets"):
         (data_dir() / child).mkdir(parents=True, exist_ok=True)
+
+
+def profile_assets_root() -> Path:
+    return data_dir() / "assets" / "profiles"
+
+
+def profile_assets_dir(slug: str) -> Path:
+    return assert_inside(profile_assets_root() / slug, profile_assets_root())
+
+
+def normalize_profile_asset_name(value: Any) -> str:
+    name = Path(str(value or "").replace("\\", "/")).name.strip()
+    if not name:
+        raise ValueError("Profile asset name is required")
+    suffix = Path(name).suffix.lower()
+    if suffix not in PROFILE_ASSET_EXTENSIONS:
+        raise ValueError("Profile asset must be png, jpg, jpeg, or webp")
+    return name
+
+
+def profile_asset_url(profile: dict[str, Any], kind: str) -> str:
+    kind = str(kind or "").strip().lower()
+    if kind not in PROFILE_ASSET_KINDS:
+        return ""
+    explicit = str(profile.get(f"{kind}_url") or "").strip()
+    if explicit:
+        return explicit
+
+    slug = str(profile.get("slug") or "").strip()
+    if not slug:
+        return ""
+
+    asset_name = str(profile.get(f"{kind}_asset") or "").strip()
+    if asset_name:
+        asset_name = normalize_profile_asset_name(asset_name)
+        return f"/assets/profiles/{quote(slug)}/{quote(asset_name)}"
+
+    assets_dir = profile_assets_dir(slug)
+    if assets_dir.exists():
+        for suffix in (".png", ".jpg", ".jpeg", ".webp"):
+            candidate = assets_dir / f"{kind}{suffix}"
+            if candidate.is_file():
+                return f"/assets/profiles/{quote(slug)}/{quote(candidate.name)}"
+    return ""
 
 
 def now_iso() -> str:
@@ -304,6 +350,14 @@ def load_profiles() -> dict[str, dict[str, Any]]:
             if pattern not in profile["whitelist"]:
                 profile["whitelist"].append(pattern)
                 dirty = True
+        for asset_kind in PROFILE_ASSET_KINDS:
+            asset_key = f"{asset_kind}_asset"
+            if profile.get(asset_key):
+                try:
+                    profile[asset_key] = normalize_profile_asset_name(profile[asset_key])
+                except ValueError:
+                    profile.pop(asset_key, None)
+                    dirty = True
         if "local_keep" in profile:
             profile.pop("local_keep", None)
             dirty = True
@@ -322,6 +376,61 @@ def profile_source_dir(slug: str) -> Path:
 
 def profile_build_dir(slug: str) -> Path:
     return assert_inside(data_dir() / "builds" / slug, data_dir() / "builds")
+
+
+def profile_asset_file(slug: str, filename: str) -> Path:
+    slug = profile_key(slug)
+    safe_name = normalize_profile_asset_name(filename)
+    root = profile_assets_dir(slug)
+    path = assert_inside(root / safe_name, root)
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    return path
+
+
+def _copy_profile_asset(slug: str, kind: str, source: Path) -> str:
+    kind = str(kind or "").strip().lower()
+    if kind not in PROFILE_ASSET_KINDS:
+        raise ValueError("Profile asset kind must be icon or background")
+    source = source.expanduser().resolve()
+    if not source.is_file():
+        raise FileNotFoundError(source)
+    suffix = source.suffix.lower()
+    if suffix not in PROFILE_ASSET_EXTENSIONS:
+        raise ValueError("Profile asset must be png, jpg, jpeg, or webp")
+    target_dir = profile_assets_dir(slug)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_name = f"{kind}{suffix}"
+    target = assert_inside(target_dir / target_name, target_dir)
+    for old in target_dir.glob(f"{kind}.*"):
+        if old.is_file() and old != target:
+            old.unlink()
+    shutil.copy2(source, target)
+    return target_name
+
+
+def set_profile_assets(
+    slug: str,
+    icon: Path | None = None,
+    background: Path | None = None,
+) -> dict[str, Any]:
+    profiles = load_profiles()
+    slug = profile_key(slug)
+    if slug not in profiles:
+        raise KeyError(f"Profile not found: {slug}")
+    profile = profiles[slug]
+    changed = False
+    if icon:
+        profile["icon_asset"] = _copy_profile_asset(slug, "icon", icon)
+        changed = True
+    if background:
+        profile["background_asset"] = _copy_profile_asset(slug, "background", background)
+        changed = True
+    if changed:
+        profile["updated_at"] = now_iso()
+        profiles[slug] = profile
+        save_profiles(profiles)
+    return profile
 
 
 def create_profile(
@@ -392,6 +501,8 @@ def public_profile(profile: dict[str, Any]) -> dict[str, Any]:
         ),
         "optional_mods": normalize_optional_mods(profile.get("optional_mods")),
         "latest_build": profile.get("latest_build"),
+        "icon_url": profile_asset_url(profile, "icon"),
+        "background_url": profile_asset_url(profile, "background"),
         "created_at": profile["created_at"],
         "updated_at": profile["updated_at"],
     }
@@ -660,6 +771,8 @@ def profile_manifest_signature(profile: dict[str, Any], optional_mods: list[dict
         profile["mod_loader"],
         profile["loader_version"],
         str(profile.get("recommended_ram_mb", DEFAULT_RECOMMENDED_RAM_MB)),
+        profile_asset_url(profile, "icon"),
+        profile_asset_url(profile, "background"),
         json.dumps(profile.get("whitelist", []), sort_keys=True, separators=(",", ":"), ensure_ascii=False),
         json.dumps(profile.get("blacklist", []), sort_keys=True, separators=(",", ":"), ensure_ascii=False),
         json.dumps(optional_mods, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
@@ -751,6 +864,8 @@ def build_profile(slug: str, base_url: str) -> dict[str, Any]:
         profile["mod_loader"],
         profile["loader_version"],
         str(profile.get("recommended_ram_mb", DEFAULT_RECOMMENDED_RAM_MB)),
+        profile_asset_url(profile, "icon"),
+        profile_asset_url(profile, "background"),
         json.dumps(optional_mods, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
     ):
         digest.update(value.encode("utf-8"))

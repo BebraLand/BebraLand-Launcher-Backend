@@ -38,11 +38,19 @@ def profile_create(
         "--recommended-ram-mb",
         help="Recommended launcher RAM in MB.",
     ),
+    icon: Path | None = typer.Option(None, "--icon", help="Profile icon image: png, jpg, jpeg, or webp."),
+    background: Path | None = typer.Option(None, "--background", help="Profile background image: png, jpg, jpeg, or webp."),
 ) -> None:
     profile = storage.create_profile(minecraft_version, mod_loader, loader_version, name, recommended_ram_mb)
+    if icon or background:
+        profile = storage.set_profile_assets(profile["slug"], icon=icon, background=background)
     console.print(f"Created [green]{profile['slug']}[/green]")
     console.print(f"Source dir: {profile['source_dir']}")
     console.print(f"Recommended RAM: {profile['recommended_ram_mb']} MB")
+    if profile.get("icon_asset"):
+        console.print(f"Icon: {profile['icon_asset']}")
+    if profile.get("background_asset"):
+        console.print(f"Background: {profile['background_asset']}")
 
 
 @profile_app.command("list")
@@ -72,6 +80,22 @@ def profile_path(slug: str) -> None:
 def profile_ram(slug: str, ram_mb: int) -> None:
     profile = storage.set_recommended_ram(slug, ram_mb)
     console.print(f"{profile['slug']} recommended RAM: {profile['recommended_ram_mb']} MB")
+
+
+@profile_app.command("assets")
+def profile_assets(
+    slug: str,
+    icon: Path | None = typer.Option(None, "--icon", help="Profile icon image: png, jpg, jpeg, or webp."),
+    background: Path | None = typer.Option(None, "--background", help="Profile background image: png, jpg, jpeg, or webp."),
+) -> None:
+    if not icon and not background:
+        raise typer.BadParameter("Pass --icon and/or --background")
+    profile = storage.set_profile_assets(slug, icon=icon, background=background)
+    console.print(f"{profile['slug']} assets updated")
+    if profile.get("icon_asset"):
+        console.print(f"Icon: {profile['icon_asset']}")
+    if profile.get("background_asset"):
+        console.print(f"Background: {profile['background_asset']}")
 
 
 def print_runtime(profile: dict[str, object]) -> None:
