@@ -82,7 +82,7 @@ def _azuriom_get_json(path: str) -> dict[str, Any]:
     url = urljoin(auth.azuriom_base_url(), path.lstrip("/"))
     request = urllib.request.Request(
         url,
-        headers={"Accept": "application/json", "User-Agent": "BebraLand Launcher Backend/1.0"},
+        headers={"Accept": "application/json", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
         method="GET"
     )
     with urllib.request.urlopen(request, timeout=15) as response:
@@ -369,7 +369,7 @@ def texture(texture_type: str, username: str, texture_hash: str) -> Response:
         raise HTTPException(status_code=404, detail="Texture hash not found")
     request = urllib.request.Request(
         str(entry["url"]),
-        headers={"Accept": "image/png", "User-Agent": "BebraLand Launcher Backend/1.0"},
+        headers={"Accept": "image/png", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
         method="GET"
     )
     try:

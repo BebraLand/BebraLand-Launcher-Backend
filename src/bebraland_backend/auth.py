@@ -70,7 +70,7 @@ def azuriom_post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
         headers={
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "User-Agent": "BebraLand Launcher Backend/1.0",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         },
         method="POST",
     )
