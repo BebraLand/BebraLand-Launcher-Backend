@@ -20,7 +20,7 @@ class BebraLandShell(cmd.Cmd):
     prompt = "bebraland> "
 
     def do_profile(self, line: str) -> None:
-        """profile create <mc_version> <mod_loader> <loader_version> <name> [--ram-mb MB] | profile runtime <slug> <mc_version> <mod_loader> [loader_version] | profile ram <slug> <mb> | profile server <slug> <host[:port]> [--port PORT] [--name NAME] | profile server <slug> --clear | profile clone <old> <new> | profile delete <name> | profile list | profile path <name>"""
+        """profile create <mc_version> <mod_loader> <loader_version> <name> [--ram-mb MB] [--icon PATH] [--background PATH] | profile assets <slug> [--icon PATH] [--background PATH] | profile runtime <slug> <mc_version> <mod_loader> [loader_version] | profile ram <slug> <mb> | profile server <slug> <host[:port]> [--port PORT] [--name NAME] | profile server <slug> --clear | profile clone <old> <new> | profile delete <name> | profile list | profile path <name>"""
         args = shlex.split(line)
         if not args:
             console.print(self.do_profile.__doc__)
@@ -29,27 +29,44 @@ class BebraLandShell(cmd.Cmd):
         try:
             if action == "create":
                 if len(args) < 5:
-                    console.print("Usage: profile create <mc_version> <mod_loader> <loader_version> <name> [--ram-mb MB]")
+                    console.print(
+                        "Usage: profile create <mc_version> <mod_loader> <loader_version> <name> "
+                        "[--ram-mb MB] [--icon PATH] [--background PATH]"
+                    )
                     return
-                ram_mb = storage.DEFAULT_RECOMMENDED_RAM_MB
-                if "--ram-mb" in args:
-                    index = args.index("--ram-mb")
-                    try:
-                        ram_mb = int(args[index + 1])
-                    except (IndexError, ValueError):
-                        console.print("Usage: profile create <mc_version> <mod_loader> <loader_version> <name> [--ram-mb MB]")
-                        return
-                    del args[index : index + 2]
+                try:
+                    ram_mb, icon, background = parse_profile_options(args)
+                except ValueError as exc:
+                    console.print(f"[red]{exc}[/red]")
+                    return
                 name = " ".join(args[4:])
                 profile = storage.create_profile(args[1], args[2], args[3], name, ram_mb)
+                if icon or background:
+                    profile = storage.set_profile_assets(profile["slug"], icon=icon, background=background)
                 console.print(f"Created {profile['slug']}: {profile['source_dir']}")
                 console.print(f"Recommended RAM: {profile['recommended_ram_mb']} MB")
+                print_profile_assets(profile)
             elif action == "ram":
                 if len(args) != 3:
                     console.print("Usage: profile ram <slug> <mb>")
                     return
                 profile = storage.set_recommended_ram(args[1], int(args[2]))
                 console.print(f"{profile['slug']} recommended RAM: {profile['recommended_ram_mb']} MB")
+            elif action in {"assets", "art"}:
+                if len(args) < 3:
+                    console.print("Usage: profile assets <slug> [--icon PATH] [--background PATH]")
+                    return
+                try:
+                    _, icon, background = parse_profile_options(args)
+                except ValueError as exc:
+                    console.print(f"[red]{exc}[/red]")
+                    return
+                if not icon and not background:
+                    console.print("Usage: profile assets <slug> [--icon PATH] [--background PATH]")
+                    return
+                profile = storage.set_profile_assets(args[1], icon=icon, background=background)
+                console.print(f"{profile['slug']} assets updated")
+                print_profile_assets(profile)
             elif action == "server":
                 if len(args) < 2:
                     console.print("Usage: profile server <slug> <host[:port]> [--port PORT] [--name NAME] | profile server <slug> --clear")
@@ -204,6 +221,47 @@ def print_profiles() -> None:
             str(profile.get("latest_build") or "-"),
         )
     console.print(table)
+
+
+def parse_profile_options(args: list[str]) -> tuple[int, Path | None, Path | None]:
+    ram_mb = storage.DEFAULT_RECOMMENDED_RAM_MB
+    icon: Path | None = None
+    background: Path | None = None
+    options = {
+        "--ram-mb": "ram",
+        "--recommended-ram-mb": "ram",
+        "--icon": "icon",
+        "--background": "background",
+    }
+    index = 0
+    while index < len(args):
+        option = args[index]
+        kind = options.get(option)
+        if not kind:
+            index += 1
+            continue
+        try:
+            value = args[index + 1]
+        except IndexError as exc:
+            raise ValueError(f"{option} needs value") from exc
+        if kind == "ram":
+            try:
+                ram_mb = int(value)
+            except ValueError as exc:
+                raise ValueError("--ram-mb must be a number") from exc
+        elif kind == "icon":
+            icon = Path(value)
+        elif kind == "background":
+            background = Path(value)
+        del args[index : index + 2]
+    return ram_mb, icon, background
+
+
+def print_profile_assets(profile: dict[str, object]) -> None:
+    if profile.get("icon_asset"):
+        console.print(f"Icon: {profile['icon_asset']}")
+    if profile.get("background_asset"):
+        console.print(f"Background: {profile['background_asset']}")
 
 
 def run_shell() -> None:

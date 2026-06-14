@@ -15,3 +15,4 @@ data-smoke/
 data/auth/
 data/authlib/rsa_key.json
 data/releases/*.exe
+/data
