@@ -71,8 +71,16 @@ def avatar_url(kind: str, username: str) -> str:
 
 def profile_payload(username: str) -> dict[str, Any]:
     skin_profile = profile(username)
+    textures = {}
+    skin = skin_profile.get("skin")
+    if isinstance(skin, dict) and skin.get("url"):
+        textures["skin_url"] = skin_api_url(str(skin["url"]))
+    cape = skin_profile.get("cape")
+    if isinstance(cape, dict) and cape.get("url"):
+        textures["cape_url"] = skin_api_url(str(cape["url"]))
     return {
         "profile": skin_profile,
+        "textures": textures,
         "avatars": {
             "face_url": avatar_url("face", username),
             "body_url": avatar_url("body", username),
