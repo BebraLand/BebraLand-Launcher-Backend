@@ -381,6 +381,43 @@ def assert_inside(path: Path, parent: Path) -> Path:
     return resolved
 
 
+def stored_source_dir(slug: str) -> str:
+    return f"sources/{slug}"
+
+
+def normalize_stored_source_dir(profile: dict[str, Any]) -> str:
+    slug = slugify(str(profile.get("slug") or profile.get("name") or ""))
+    raw = str(profile.get("source_dir") or "").strip()
+    if not raw:
+        return stored_source_dir(slug)
+
+    normalized = raw.replace("\\", "/").strip()
+    sources_marker = "/sources/"
+    if sources_marker in normalized:
+        normalized = f"sources/{normalized.rsplit(sources_marker, 1)[1]}"
+    elif normalized.startswith("sources/"):
+        pass
+    elif normalized.startswith("data/sources/"):
+        normalized = normalized.removeprefix("data/")
+
+    candidate = Path(normalized)
+    if candidate.is_absolute():
+        candidate = assert_inside(candidate, data_dir() / "sources")
+        return candidate.relative_to(data_dir()).as_posix()
+
+    candidate = Path(normalized)
+    if candidate.parts and candidate.parts[0] == "sources":
+        resolved = assert_inside(data_dir() / candidate, data_dir() / "sources")
+        return resolved.relative_to(data_dir()).as_posix()
+
+    raise ValueError(f"Invalid source_dir for profile {slug}: {raw}")
+
+
+def profile_source_root(profile: dict[str, Any]) -> Path:
+    relative = normalize_stored_source_dir(profile)
+    return assert_inside(data_dir() / relative, data_dir() / "sources")
+
+
 def load_profiles() -> dict[str, dict[str, Any]]:
     ensure_data_dirs()
     profiles = read_json(profiles_file(), {})
@@ -388,6 +425,10 @@ def load_profiles() -> dict[str, dict[str, Any]]:
         raise ValueError("profiles.json must contain object")
     dirty = False
     for profile in profiles.values():
+        old_source_dir = profile.get("source_dir")
+        profile["source_dir"] = normalize_stored_source_dir(profile)
+        if old_source_dir != profile["source_dir"]:
+            dirty = True
         if "whitelist" not in profile:
             profile["whitelist"] = list(DEFAULT_WHITELIST)
             dirty = True
@@ -538,7 +579,7 @@ def create_profile(
         "minecraft_version": minecraft_version,
         "mod_loader": mod_loader.lower(),
         "loader_version": loader_version,
-        "source_dir": str(source_dir),
+        "source_dir": stored_source_dir(slug),
         "whitelist": list(DEFAULT_WHITELIST),
         "blacklist": list(DEFAULT_BLACKLIST),
         "recommended_ram_mb": recommended_ram_mb,
@@ -711,7 +752,7 @@ def clone_profile(source_identifier: str, new_name: str) -> dict[str, Any]:
         raise ValueError(f"Profile already exists: {new_slug}")
 
     source_profile = profiles[source_slug]
-    source_root = assert_inside(Path(source_profile["source_dir"]), data_dir() / "sources")
+    source_root = profile_source_root(source_profile)
     target_root = profile_source_dir(new_slug)
     if target_root.exists():
         raise ValueError(f"Target source directory already exists: {target_root}")
@@ -721,7 +762,7 @@ def clone_profile(source_identifier: str, new_name: str) -> dict[str, Any]:
         **source_profile,
         "slug": new_slug,
         "name": new_name,
-        "source_dir": str(target_root),
+        "source_dir": stored_source_dir(new_slug),
         "latest_build": None,
         "created_at": now_iso(),
         "updated_at": now_iso(),
@@ -735,7 +776,7 @@ def delete_profile(identifier: str) -> dict[str, Any]:
     profiles = load_profiles()
     slug = profile_key(identifier)
     profile = profiles.pop(slug)
-    source_root = assert_inside(Path(profile["source_dir"]), data_dir() / "sources")
+    source_root = profile_source_root(profile)
     build_root = assert_inside(data_dir() / "builds" / slug, data_dir() / "builds")
     if source_root.exists():
         shutil.rmtree(source_root)
@@ -750,7 +791,7 @@ def copy_source(slug: str, source: Path, replace: bool = False) -> Path:
     source_root = source.resolve()
     if not source_root.exists():
         raise FileNotFoundError(source_root)
-    target_root = assert_inside(Path(profile["source_dir"]), data_dir() / "sources")
+    target_root = profile_source_root(profile)
     if replace and target_root.exists():
         shutil.rmtree(target_root)
     target_root.mkdir(parents=True, exist_ok=True)
@@ -859,7 +900,7 @@ def sha256_file(path: Path) -> str:
 
 
 def iter_source_files(profile: dict[str, Any]) -> list[tuple[Path, str]]:
-    source_root = Path(profile["source_dir"]).resolve()
+    source_root = profile_source_root(profile)
     if not source_root.exists():
         return []
     result: list[tuple[Path, str]] = []
@@ -1068,7 +1109,7 @@ def file_for(slug: str, build_id: str, file_path: str) -> Path:
     if rel not in manifest_files:
         raise FileNotFoundError(file_path)
 
-    root = assert_inside(Path(profile["source_dir"]), data_dir() / "sources")
+    root = profile_source_root(profile)
     target = assert_inside(root / rel, root)
     if not target.is_file():
         raise FileNotFoundError(file_path)
