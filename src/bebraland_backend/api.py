@@ -217,7 +217,10 @@ def file(slug: str, build_id: str, file_path: str) -> FileResponse:
 @app.get("/assets/profiles/{slug}/{file_name}")
 def profile_asset(slug: str, file_name: str) -> FileResponse:
     try:
-        return FileResponse(storage.profile_asset_file(slug, file_name))
+        return FileResponse(
+            storage.profile_asset_file(slug, file_name),
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        )
     except (FileNotFoundError, KeyError, ValueError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

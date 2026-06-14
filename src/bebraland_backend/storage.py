@@ -92,6 +92,10 @@ def normalize_profile_asset_name(value: Any) -> str:
 
 
 def profile_asset_url(profile: dict[str, Any], kind: str) -> str:
+    def local_asset_url(slug_value: str, asset_path: Path) -> str:
+        version = sha256_file(asset_path)[:16]
+        return f"/assets/profiles/{quote(slug_value)}/{quote(asset_path.name)}?v={version}"
+
     kind = str(kind or "").strip().lower()
     if kind not in PROFILE_ASSET_KINDS:
         return ""
@@ -106,6 +110,9 @@ def profile_asset_url(profile: dict[str, Any], kind: str) -> str:
     asset_name = str(profile.get(f"{kind}_asset") or "").strip()
     if asset_name:
         asset_name = normalize_profile_asset_name(asset_name)
+        asset_path = profile_assets_dir(slug) / asset_name
+        if asset_path.is_file():
+            return local_asset_url(slug, asset_path)
         return f"/assets/profiles/{quote(slug)}/{quote(asset_name)}"
 
     assets_dir = profile_assets_dir(slug)
@@ -113,7 +120,7 @@ def profile_asset_url(profile: dict[str, Any], kind: str) -> str:
         for suffix in (".png", ".jpg", ".jpeg", ".webp"):
             candidate = assets_dir / f"{kind}{suffix}"
             if candidate.is_file():
-                return f"/assets/profiles/{quote(slug)}/{quote(candidate.name)}"
+                return local_asset_url(slug, candidate)
     return ""
 
 
