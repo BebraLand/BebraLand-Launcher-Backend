@@ -56,9 +56,11 @@ def profile_create(
 @profile_app.command("list")
 def profile_list() -> None:
     table = Table(title="BebraLand profiles")
-    for column in ("slug", "name", "minecraft", "loader", "loader version", "ram MB", "latest build"):
+    for column in ("slug", "name", "minecraft", "loader", "loader version", "ram MB", "server", "latest build"):
         table.add_column(column)
     for profile in storage.list_profiles():
+        server = storage.normalize_profile_server(profile.get("server"))
+        server_label = f"{server['host']}:{server['port']}" if server else "-"
         table.add_row(
             profile["slug"],
             profile["name"],
@@ -66,6 +68,7 @@ def profile_list() -> None:
             profile["mod_loader"],
             profile["loader_version"],
             str(profile.get("recommended_ram_mb", storage.DEFAULT_RECOMMENDED_RAM_MB)),
+            server_label,
             str(profile.get("latest_build") or "-"),
         )
     console.print(table)
@@ -80,6 +83,25 @@ def profile_path(slug: str) -> None:
 def profile_ram(slug: str, ram_mb: int) -> None:
     profile = storage.set_recommended_ram(slug, ram_mb)
     console.print(f"{profile['slug']} recommended RAM: {profile['recommended_ram_mb']} MB")
+
+
+@profile_app.command("server")
+def profile_server(
+    slug: str,
+    host: str = typer.Argument("", help="Minecraft server host or host:port. Leave empty with --clear."),
+    port: int = typer.Option(storage.server_status.DEFAULT_PORT, "--port", "-p"),
+    name: str = typer.Option("", "--name", help="Display name shown in API payload."),
+    clear: bool = typer.Option(False, "--clear", help="Remove server badge from this profile."),
+) -> None:
+    if clear:
+        profile = storage.clear_profile_server(slug)
+        console.print(f"{profile['slug']} server cleared")
+        return
+    if not host:
+        raise typer.BadParameter("Pass host or --clear")
+    profile = storage.set_profile_server(slug, host, port, name)
+    server = storage.normalize_profile_server(profile.get("server"))
+    console.print(f"{profile['slug']} server: {server['host']}:{server['port']}")
 
 
 @profile_app.command("assets")

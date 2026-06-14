@@ -20,7 +20,7 @@ class BebraLandShell(cmd.Cmd):
     prompt = "bebraland> "
 
     def do_profile(self, line: str) -> None:
-        """profile create <mc_version> <mod_loader> <loader_version> <name> [--ram-mb MB] | profile runtime <slug> <mc_version> <mod_loader> [loader_version] | profile ram <slug> <mb> | profile clone <old> <new> | profile delete <name> | profile list | profile path <name>"""
+        """profile create <mc_version> <mod_loader> <loader_version> <name> [--ram-mb MB] | profile runtime <slug> <mc_version> <mod_loader> [loader_version] | profile ram <slug> <mb> | profile server <slug> <host[:port]> [--port PORT] [--name NAME] | profile server <slug> --clear | profile clone <old> <new> | profile delete <name> | profile list | profile path <name>"""
         args = shlex.split(line)
         if not args:
             console.print(self.do_profile.__doc__)
@@ -50,6 +50,39 @@ class BebraLandShell(cmd.Cmd):
                     return
                 profile = storage.set_recommended_ram(args[1], int(args[2]))
                 console.print(f"{profile['slug']} recommended RAM: {profile['recommended_ram_mb']} MB")
+            elif action == "server":
+                if len(args) < 2:
+                    console.print("Usage: profile server <slug> <host[:port]> [--port PORT] [--name NAME] | profile server <slug> --clear")
+                    return
+                slug = args[1]
+                if "--clear" in args:
+                    profile = storage.clear_profile_server(slug)
+                    console.print(f"{profile['slug']} server cleared")
+                    return
+
+                if len(args) < 3:
+                    console.print("Usage: profile server <slug> <host[:port]> [--port PORT] [--name NAME]")
+                    return
+                host = args[2]
+                port = storage.server_status.DEFAULT_PORT
+                name = ""
+                if "--port" in args:
+                    index = args.index("--port")
+                    try:
+                        port = int(args[index + 1])
+                    except (IndexError, ValueError):
+                        console.print("Usage: profile server <slug> <host[:port]> [--port PORT] [--name NAME]")
+                        return
+                if "--name" in args:
+                    index = args.index("--name")
+                    try:
+                        name = args[index + 1]
+                    except IndexError:
+                        console.print("Usage: profile server <slug> <host[:port]> [--port PORT] [--name NAME]")
+                        return
+                profile = storage.set_profile_server(slug, host, port, name)
+                server = storage.normalize_profile_server(profile.get("server"))
+                console.print(f"{profile['slug']} server: {server['host']}:{server['port']}")
             elif action in {"runtime", "hotswap", "loader"}:
                 if len(args) not in {4, 5}:
                     console.print("Usage: profile runtime <slug> <mc_version> <mod_loader> [loader_version]")
@@ -155,9 +188,11 @@ class BebraLandShell(cmd.Cmd):
 
 def print_profiles() -> None:
     table = Table(title="Profiles")
-    for column in ("slug", "name", "mc", "loader", "loader_ver", "ram_mb", "latest"):
+    for column in ("slug", "name", "mc", "loader", "loader_ver", "ram_mb", "server", "latest"):
         table.add_column(column)
     for profile in storage.list_profiles():
+        server = storage.normalize_profile_server(profile.get("server"))
+        server_label = f"{server['host']}:{server['port']}" if server else "-"
         table.add_row(
             profile["slug"],
             profile["name"],
@@ -165,6 +200,7 @@ def print_profiles() -> None:
             profile["mod_loader"],
             profile["loader_version"],
             str(profile.get("recommended_ram_mb", storage.DEFAULT_RECOMMENDED_RAM_MB)),
+            server_label,
             str(profile.get("latest_build") or "-"),
         )
     console.print(table)

@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from . import server_status
+
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_RECOMMENDED_RAM_MB = 2048
@@ -171,6 +173,66 @@ def normalize_string_list(value: Any, field_name: str) -> list[str]:
         if text not in result:
             result.append(text)
     return result
+
+
+def split_server_address(value: Any, default_port: int = server_status.DEFAULT_PORT) -> tuple[str, int]:
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("Server host is required")
+    text = text.replace("minecraft://", "").replace("mc://", "")
+    text = text.split("/", 1)[0].strip()
+
+    host = text
+    port = default_port
+    if text.startswith("[") and "]" in text:
+        end = text.index("]")
+        host = text[1:end].strip()
+        tail = text[end + 1 :].strip()
+        if tail.startswith(":"):
+            port = int(tail[1:])
+    elif ":" in text and text.count(":") == 1:
+        host, raw_port = text.rsplit(":", 1)
+        host = host.strip()
+        if raw_port.strip():
+            port = int(raw_port.strip())
+
+    if not host:
+        raise ValueError("Server host is required")
+    if port < 1 or port > 65535:
+        raise ValueError("Server port must be between 1 and 65535")
+    return host, port
+
+
+def normalize_profile_server(value: Any) -> dict[str, Any] | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        host, port = split_server_address(value)
+        return {"host": host, "port": port, "name": host}
+    if not isinstance(value, dict):
+        raise ValueError("server must be an object, string, or null")
+
+    raw_host = value.get("host") or value.get("address") or value.get("server")
+    host, address_port = split_server_address(raw_host)
+    port = int(value.get("port") or address_port)
+    if port < 1 or port > 65535:
+        raise ValueError("Server port must be between 1 and 65535")
+    name = str(value.get("name") or value.get("display_name") or host).strip() or host
+    return {
+        "host": host,
+        "port": port,
+        "name": name,
+    }
+
+
+def profile_server_status(profile: dict[str, Any]) -> dict[str, Any] | None:
+    server = normalize_profile_server(profile.get("server"))
+    if not server:
+        return None
+    try:
+        return server_status.query_java_server(str(server["host"]), int(server["port"]))
+    except Exception as exc:
+        return server_status.offline_payload(exc)
 
 
 def normalize_pack_pattern(value: Any) -> str:
@@ -358,6 +420,20 @@ def load_profiles() -> dict[str, dict[str, Any]]:
                 except ValueError:
                     profile.pop(asset_key, None)
                     dirty = True
+        if "server" in profile:
+            old_server = profile.get("server")
+            try:
+                normalized_server = normalize_profile_server(old_server)
+            except (TypeError, ValueError):
+                profile.pop("server", None)
+                dirty = True
+            else:
+                if normalized_server:
+                    profile["server"] = normalized_server
+                else:
+                    profile.pop("server", None)
+                if old_server != normalized_server:
+                    dirty = True
         if "local_keep" in profile:
             profile.pop("local_keep", None)
             dirty = True
@@ -489,8 +565,9 @@ def list_profiles() -> list[dict[str, Any]]:
     return sorted(load_profiles().values(), key=lambda item: item["slug"])
 
 
-def public_profile(profile: dict[str, Any]) -> dict[str, Any]:
-    return {
+def public_profile(profile: dict[str, Any], include_server_status: bool = True) -> dict[str, Any]:
+    server = normalize_profile_server(profile.get("server"))
+    payload = {
         "slug": profile["slug"],
         "name": profile["name"],
         "minecraft_version": profile["minecraft_version"],
@@ -501,11 +578,15 @@ def public_profile(profile: dict[str, Any]) -> dict[str, Any]:
         ),
         "optional_mods": normalize_optional_mods(profile.get("optional_mods")),
         "latest_build": profile.get("latest_build"),
+        "server": server,
         "icon_url": profile_asset_url(profile, "icon"),
         "background_url": profile_asset_url(profile, "background"),
         "created_at": profile["created_at"],
         "updated_at": profile["updated_at"],
     }
+    if include_server_status and server:
+        payload["server_status"] = profile_server_status(profile)
+    return payload
 
 
 def normalize_rule_type(rule_type: str) -> str:
@@ -545,6 +626,34 @@ def set_recommended_ram(slug: str, ram_mb: int) -> dict[str, Any]:
     if slug not in profiles:
         raise KeyError(f"Profile not found: {slug}")
     profiles[slug]["recommended_ram_mb"] = normalize_recommended_ram_mb(ram_mb)
+    profiles[slug]["updated_at"] = now_iso()
+    save_profiles(profiles)
+    return profiles[slug]
+
+
+def set_profile_server(
+    slug: str,
+    host: str,
+    port: int = server_status.DEFAULT_PORT,
+    name: str = "",
+) -> dict[str, Any]:
+    profiles = load_profiles()
+    slug = profile_key(slug)
+    if slug not in profiles:
+        raise KeyError(f"Profile not found: {slug}")
+    server = normalize_profile_server({"host": host, "port": port, "name": name})
+    profiles[slug]["server"] = server
+    profiles[slug]["updated_at"] = now_iso()
+    save_profiles(profiles)
+    return profiles[slug]
+
+
+def clear_profile_server(slug: str) -> dict[str, Any]:
+    profiles = load_profiles()
+    slug = profile_key(slug)
+    if slug not in profiles:
+        raise KeyError(f"Profile not found: {slug}")
+    profiles[slug].pop("server", None)
     profiles[slug]["updated_at"] = now_iso()
     save_profiles(profiles)
     return profiles[slug]
@@ -771,6 +880,7 @@ def profile_manifest_signature(profile: dict[str, Any], optional_mods: list[dict
         profile["mod_loader"],
         profile["loader_version"],
         str(profile.get("recommended_ram_mb", DEFAULT_RECOMMENDED_RAM_MB)),
+        json.dumps(normalize_profile_server(profile.get("server")), sort_keys=True, separators=(",", ":"), ensure_ascii=False),
         profile_asset_url(profile, "icon"),
         profile_asset_url(profile, "background"),
         json.dumps(profile.get("whitelist", []), sort_keys=True, separators=(",", ":"), ensure_ascii=False),
@@ -864,6 +974,7 @@ def build_profile(slug: str, base_url: str) -> dict[str, Any]:
         profile["mod_loader"],
         profile["loader_version"],
         str(profile.get("recommended_ram_mb", DEFAULT_RECOMMENDED_RAM_MB)),
+        json.dumps(normalize_profile_server(profile.get("server")), sort_keys=True, separators=(",", ":"), ensure_ascii=False),
         profile_asset_url(profile, "icon"),
         profile_asset_url(profile, "background"),
         json.dumps(optional_mods, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
@@ -906,7 +1017,7 @@ def build_profile(slug: str, base_url: str) -> dict[str, Any]:
 
     manifest = {
         "schema_version": 1,
-        "profile": public_profile(profile),
+        "profile": public_profile(profile, include_server_status=False),
         "build_id": build_id,
         "content_hash": content_hash,
         "profile_signature": profile_signature,

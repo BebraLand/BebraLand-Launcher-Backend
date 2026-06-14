@@ -49,6 +49,8 @@ profile runtime PaperlandIterion 1.21.1 neoforge 21.1.227
 profile hotswap PaperlandIterion 1.20.1 forge 47.4.0
 profile loader PaperlandIterion 1.21.1 vanilla
 profile ram PaperlandIterion 4096
+profile server PaperlandIterion play.example.com --port 25565 --name BebraLand
+profile server PaperlandIterion --clear
 profile assets PaperlandIterion --icon C:\packs\icon.png --background C:\packs\background.jpg
 profile clone PaperlandIterion NewPaperlandIterion
 profile list
@@ -65,6 +67,8 @@ Profile assets are copied into `data/assets/profiles/<slug>/` and served as:
 ```
 
 `GET /api/v1/profiles` and the websocket `profiles.list` response include `icon_url` and `background_url`. If a profile has no custom background, the frontend uses its bundled `background_for_launcher.jpg`.
+
+Profile server badge is optional. Set it with `profile server <slug> <host[:port]>`; clear it with `profile server <slug> --clear`. Profiles without `server` do not show the online badge in the launcher. Profiles with `server` include `server_status.players.online` from the Minecraft Java status ping.
 
 `profile runtime`, `profile hotswap`, and `profile loader` edit the same profile slug in place. Use them when you need to move a pack from Forge to NeoForge, change loader version, or change Minecraft version. The source folder is kept, the old generated build cache is cleared, and the next launcher `Play` request rebuilds the manifest with the new runtime metadata. Connected launchers receive `profiles.changed` from the running backend after `data/profiles.json` changes.
 

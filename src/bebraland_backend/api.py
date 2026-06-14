@@ -334,7 +334,8 @@ async def websocket_api(websocket: WebSocket) -> None:
     await manager.connect(websocket)
     try:
         await manager.send(websocket, {"type": "hello", "version": __version__})
-        await manager.send(websocket, {"type": "profiles.changed", "reason": "hello", **profiles_payload()})
+        initial_profiles = await asyncio.to_thread(profiles_payload)
+        await manager.send(websocket, {"type": "profiles.changed", "reason": "hello", **initial_profiles})
         while True:
             message = await websocket.receive_json()
             message_id = message.get("id")
