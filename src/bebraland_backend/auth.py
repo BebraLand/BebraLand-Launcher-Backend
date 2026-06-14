@@ -22,6 +22,31 @@ class AzuriomAuthError(RuntimeError):
         super().__init__(str(message))
 
 
+def is_two_factor_required(payload: dict[str, Any]) -> bool:
+    reason = str(payload.get("reason") or "").lower()
+    message = str(payload.get("message") or "").lower()
+    details = str(payload.get("details") or "").lower()
+    text = " ".join((reason, message, details))
+    return (
+        reason in {"2fa", "two_factor", "totp"}
+        or "2fa" in text
+        or "two-factor" in text
+        or "two factor" in text
+    ) and ("missing" in text or "required" in text or reason in {"2fa", "two_factor", "totp"})
+
+
+def two_factor_pending_payload(message: str | None = None, reason: str | None = None) -> dict[str, Any]:
+    display_message = (message or "").strip()
+    if not display_message or "missing" in display_message.lower():
+        display_message = "Two-factor code required"
+    return {
+        "status": "pending",
+        "reason": reason or "2fa",
+        "requires2fa": True,
+        "message": display_message,
+    }
+
+
 def azuriom_base_url() -> str:
     value = os.environ.get("AZURIOM_URL", "").strip()
     if not value:
@@ -80,14 +105,14 @@ def azuriom_login(email: str, password: str, code: str | None = None) -> dict[st
     payload: dict[str, Any] = {"email": email, "password": password}
     if code:
         payload["code"] = code
-    result = azuriom_post("authenticate", payload)
+    try:
+        result = azuriom_post("authenticate", payload)
+    except AzuriomAuthError as exc:
+        if not code and is_two_factor_required(exc.payload):
+            return two_factor_pending_payload(str(exc.payload.get("message") or ""), str(exc.payload.get("reason") or "2fa"))
+        raise
     if result.get("status") == "pending":
-        return {
-            "status": "pending",
-            "reason": result.get("reason"),
-            "requires2fa": result.get("reason") == "2fa",
-            "message": result.get("message", "Two-factor code required"),
-        }
+        return two_factor_pending_payload(str(result.get("message") or ""), str(result.get("reason") or "2fa"))
     token = result.get("access_token")
     if not token:
         raise AzuriomAuthError(
