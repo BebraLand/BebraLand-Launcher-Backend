@@ -67,7 +67,11 @@ def azuriom_post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     request = urllib.request.Request(
         url,
         data=data,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "BebraLand Launcher Backend/1.0",
+        },
         method="POST",
     )
     try:

@@ -48,7 +48,11 @@ def _request_json(url: str, request: urllib.request.Request) -> dict[str, Any]:
 
 def get_json(path: str) -> dict[str, Any]:
     url = skin_api_url(path)
-    request = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
+    request = urllib.request.Request(
+        url,
+        headers={"Accept": "application/json", "User-Agent": "BebraLand Launcher Backend/1.0"},
+        method="GET"
+    )
     return _request_json(url, request)
 
 
@@ -157,6 +161,7 @@ def upload_texture(
         data=body,
         headers={
             "Accept": "application/json",
+            "User-Agent": "BebraLand Launcher Backend/1.0",
             "Content-Type": f"multipart/form-data; boundary={boundary}",
             "Content-Length": str(len(body)),
         },

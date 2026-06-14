@@ -80,7 +80,11 @@ def _verify_access_token(access_token: str) -> dict[str, Any]:
 
 def _azuriom_get_json(path: str) -> dict[str, Any]:
     url = urljoin(auth.azuriom_base_url(), path.lstrip("/"))
-    request = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
+    request = urllib.request.Request(
+        url,
+        headers={"Accept": "application/json", "User-Agent": "BebraLand Launcher Backend/1.0"},
+        method="GET"
+    )
     with urllib.request.urlopen(request, timeout=15) as response:
         body = response.read().decode("utf-8")
         payload = json.loads(body) if body else {}
@@ -363,7 +367,11 @@ def texture(texture_type: str, username: str, texture_hash: str) -> Response:
     expected_hash = _hash_value(entry.get("hash"))
     if expected_hash and expected_hash != quote(texture_hash, safe=""):
         raise HTTPException(status_code=404, detail="Texture hash not found")
-    request = urllib.request.Request(str(entry["url"]), headers={"Accept": "image/png"}, method="GET")
+    request = urllib.request.Request(
+        str(entry["url"]),
+        headers={"Accept": "image/png", "User-Agent": "BebraLand Launcher Backend/1.0"},
+        method="GET"
+    )
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
             body = response.read()
