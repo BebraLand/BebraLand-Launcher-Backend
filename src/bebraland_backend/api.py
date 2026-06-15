@@ -27,6 +27,7 @@ class ConnectionManager:
     def __init__(self) -> None:
         self._clients: set[WebSocket] = set()
         self._send_locks: dict[WebSocket, asyncio.Lock] = {}
+        self._users: dict[WebSocket, dict[str, Any] | None] = {}
         self._lock = asyncio.Lock()
 
     async def connect(self, websocket: WebSocket) -> None:
@@ -34,11 +35,22 @@ class ConnectionManager:
         async with self._lock:
             self._clients.add(websocket)
             self._send_locks[websocket] = asyncio.Lock()
+            self._users[websocket] = None
 
     async def disconnect(self, websocket: WebSocket) -> None:
         async with self._lock:
             self._clients.discard(websocket)
             self._send_locks.pop(websocket, None)
+            self._users.pop(websocket, None)
+
+    async def set_user(self, websocket: WebSocket, user: dict[str, Any] | None) -> None:
+        async with self._lock:
+            if websocket in self._clients:
+                self._users[websocket] = user
+
+    async def clients_with_users(self) -> list[tuple[WebSocket, dict[str, Any] | None]]:
+        async with self._lock:
+            return [(client, self._users.get(client)) for client in self._clients]
 
     async def send(self, websocket: WebSocket, payload: dict[str, Any]) -> None:
         async with self._lock:
@@ -62,6 +74,7 @@ class ConnectionManager:
                 for client in stale:
                     self._clients.discard(client)
                     self._send_locks.pop(client, None)
+                    self._users.pop(client, None)
 
 
 manager = ConnectionManager()
@@ -167,8 +180,15 @@ def root() -> JSONResponse:
 
 
 async def broadcast_profiles(reason: str) -> None:
-    payload = await asyncio.to_thread(profiles_payload)
-    await manager.broadcast({"type": "profiles.changed", "reason": reason, **payload})
+    stale: list[WebSocket] = []
+    for websocket, user in await manager.clients_with_users():
+        try:
+            payload = await asyncio.to_thread(profiles_payload, user)
+            await manager.send(websocket, {"type": "profiles.changed", "reason": reason, **payload})
+        except Exception:
+            stale.append(websocket)
+    for websocket in stale:
+        await manager.disconnect(websocket)
 
 
 async def watch_storage_changes() -> None:
@@ -375,6 +395,7 @@ async def websocket_api(websocket: WebSocket) -> None:
             if not isinstance(payload, dict):
                 payload = {}
             user = await asyncio.to_thread(user_for_token, str(message.get("token") or ""))
+            await manager.set_user(websocket, user)
             try:
                 result = await websocket_result(message_type, payload, user)
             except Exception as exc:
