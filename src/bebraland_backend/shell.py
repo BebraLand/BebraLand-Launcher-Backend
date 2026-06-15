@@ -20,10 +20,10 @@ class BebraLandShell(cmd.Cmd):
     prompt = "bebraland> "
 
     def do_profile(self, line: str) -> None:
-        """profile create <mc_version> <mod_loader> <loader_version> <name> [--ram-mb MB] [--icon PATH] [--background PATH] | profile assets <slug> [--icon PATH] [--background PATH] | profile runtime <slug> <mc_version> <mod_loader> [loader_version] | profile ram <slug> <mb> | profile priority <slug> <number> | profile enable <slug> | profile disable <slug> | profile user add|remove <slug> <username> | profile server <slug> <host[:port]> [--port PORT] [--name NAME] | profile server <slug> --clear | profile clone <old> <new> | profile delete <name> | profile list | profile path <name>"""
+        """profile commands. Type: profile"""
         args = shlex.split(line)
         if not args:
-            console.print(self.do_profile.__doc__)
+            print_profile_help()
             return
         action = args[0]
         try:
@@ -153,6 +153,55 @@ class BebraLandShell(cmd.Cmd):
         except Exception as exc:
             console.print(f"[red]{exc}[/red]")
 
+    def do_priority(self, line: str) -> None:
+        """priority <slug> <number>"""
+        args = shlex.split(line)
+        if len(args) != 2:
+            console.print("Usage: priority <slug> <number>")
+            return
+        try:
+            profile = storage.set_profile_priority(args[0], int(args[1]))
+            console.print(f"{profile['slug']} priority: {profile['priority']}")
+        except Exception as exc:
+            console.print(f"[red]{exc}[/red]")
+
+    def do_prio(self, line: str) -> None:
+        """Alias: priority <slug> <number>"""
+        self.do_priority(line)
+
+    def do_enable(self, line: str) -> None:
+        """enable <slug>"""
+        self._set_enabled(line, True)
+
+    def do_disable(self, line: str) -> None:
+        """disable <slug>"""
+        self._set_enabled(line, False)
+
+    def _set_enabled(self, line: str, enabled: bool) -> None:
+        args = shlex.split(line)
+        command = "enable" if enabled else "disable"
+        if len(args) != 1:
+            console.print(f"Usage: {command} <slug>")
+            return
+        try:
+            profile = storage.set_profile_enabled(args[0], enabled)
+            state = "enabled" if profile.get("enabled") else "disabled"
+            console.print(f"{profile['slug']} {state}")
+        except Exception as exc:
+            console.print(f"[red]{exc}[/red]")
+
+    def do_user(self, line: str) -> None:
+        """user add|remove <slug> <username>"""
+        args = shlex.split(line)
+        if len(args) != 3 or args[0] not in {"add", "remove"}:
+            console.print("Usage: user add|remove <slug> <username>")
+            return
+        try:
+            profile = storage.set_profile_allowed_user(args[1], args[2], args[0] == "add")
+            console.print(f"{profile['slug']} allowed users: {profile['allowed_users']}")
+        except Exception as exc:
+            console.print(f"[red]{exc}[/red]")
+
     def do_whitelist(self, line: str) -> None:
         """whitelist add <profile> <pattern> | whitelist remove <profile> <pattern>"""
         self._rule("whitelist", line)
@@ -243,6 +292,34 @@ def print_profiles() -> None:
             str(profile.get("latest_build") or "-"),
         )
     console.print(table)
+
+
+def print_profile_help() -> None:
+    lines = [
+        "Profile commands:",
+        "  profile list",
+        "  profile create <mc_version> <mod_loader> <loader_version> <name> [--ram-mb MB]",
+        "  profile assets <slug> [--icon PATH] [--background PATH]",
+        "  profile runtime <slug> <mc_version> <mod_loader> [loader_version]",
+        "  profile ram <slug> <mb>",
+        "  profile priority <slug> <number>",
+        "  profile enable <slug>",
+        "  profile disable <slug>",
+        "  profile user add|remove <slug> <username>",
+        "  profile server <slug> <host[:port]> [--port PORT] [--name NAME]",
+        "  profile server <slug> --clear",
+        "  profile clone <old> <new>",
+        "  profile delete <name>",
+        "  profile path <name>",
+        "",
+        "Short aliases:",
+        "  priority <slug> <number>",
+        "  prio <slug> <number>",
+        "  enable <slug>",
+        "  disable <slug>",
+        "  user add|remove <slug> <username>",
+    ]
+    console.print("\n".join(lines), markup=False)
 
 
 def parse_profile_options(args: list[str]) -> tuple[int, Path | None, Path | None]:
