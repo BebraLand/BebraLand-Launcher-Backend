@@ -256,11 +256,13 @@ class BebraLandShell(cmd.Cmd):
             console.print(f"[red]{exc}[/red]")
 
     def do_serve(self, line: str) -> None:
-        """serve [host] [port]"""
+        """serve [host] [port] [--reload|--no-reload]"""
         args = shlex.split(line)
+        reload = "--no-reload" not in args
+        args = [arg for arg in args if arg not in {"--reload", "--no-reload"}]
         host = args[0] if len(args) >= 1 else config.server_host()
         port = int(args[1]) if len(args) >= 2 else config.server_port()
-        uvicorn.run("bebraland_backend.api:app", host=host, port=port)
+        uvicorn.run("bebraland_backend.api:app", host=host, port=port, reload=reload)
 
     def do_exit(self, line: str) -> bool:
         """exit"""

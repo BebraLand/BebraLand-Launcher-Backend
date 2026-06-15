@@ -290,7 +290,7 @@ def build(
 def serve(
     host: str | None = typer.Option(None, "--host"),
     port: int | None = typer.Option(None, "--port"),
-    reload: bool = typer.Option(False, "--reload"),
+    reload: bool = typer.Option(True, "--reload/--no-reload", help="Restart server when backend files change."),
 ) -> None:
     uvicorn.run(
         "bebraland_backend.api:app",
