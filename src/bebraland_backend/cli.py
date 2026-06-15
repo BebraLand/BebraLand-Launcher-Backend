@@ -56,18 +56,33 @@ def profile_create(
 @profile_app.command("list")
 def profile_list() -> None:
     table = Table(title="BebraLand profiles")
-    for column in ("slug", "name", "minecraft", "loader", "loader version", "ram MB", "server", "latest build"):
+    for column in (
+        "priority",
+        "enabled",
+        "slug",
+        "name",
+        "minecraft",
+        "loader",
+        "loader version",
+        "ram MB",
+        "allowed users",
+        "server",
+        "latest build",
+    ):
         table.add_column(column)
-    for profile in storage.list_profiles():
+    for profile in storage.list_profiles(include_hidden=True):
         server = storage.normalize_profile_server(profile.get("server"))
         server_label = f"{server['host']}:{server['port']}" if server else "-"
         table.add_row(
+            str(profile.get("priority", storage.DEFAULT_PROFILE_PRIORITY)),
+            "yes" if storage.normalize_bool(profile.get("enabled"), True) else "no",
             profile["slug"],
             profile["name"],
             profile["minecraft_version"],
             profile["mod_loader"],
             profile["loader_version"],
             str(profile.get("recommended_ram_mb", storage.DEFAULT_RECOMMENDED_RAM_MB)),
+            ", ".join(storage.normalize_allowed_users(profile.get("allowed_users"))) or "-",
             server_label,
             str(profile.get("latest_build") or "-"),
         )
@@ -83,6 +98,36 @@ def profile_path(slug: str) -> None:
 def profile_ram(slug: str, ram_mb: int) -> None:
     profile = storage.set_recommended_ram(slug, ram_mb)
     console.print(f"{profile['slug']} recommended RAM: {profile['recommended_ram_mb']} MB")
+
+
+@profile_app.command("priority")
+def profile_priority(slug: str, priority: int) -> None:
+    profile = storage.set_profile_priority(slug, priority)
+    console.print(f"{profile['slug']} priority: {profile['priority']}")
+
+
+@profile_app.command("enable")
+def profile_enable(slug: str) -> None:
+    profile = storage.set_profile_enabled(slug, True)
+    console.print(f"{profile['slug']} enabled")
+
+
+@profile_app.command("disable")
+def profile_disable(slug: str) -> None:
+    profile = storage.set_profile_enabled(slug, False)
+    console.print(f"{profile['slug']} disabled")
+
+
+@profile_app.command("user-add")
+def profile_user_add(slug: str, username: str) -> None:
+    profile = storage.set_profile_allowed_user(slug, username, True)
+    console.print(f"{profile['slug']} allowed users: {profile['allowed_users']}")
+
+
+@profile_app.command("user-remove")
+def profile_user_remove(slug: str, username: str) -> None:
+    profile = storage.set_profile_allowed_user(slug, username, False)
+    console.print(f"{profile['slug']} allowed users: {profile['allowed_users']}")
 
 
 @profile_app.command("server")

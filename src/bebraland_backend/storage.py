@@ -18,6 +18,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_RECOMMENDED_RAM_MB = 2048
 MIN_RECOMMENDED_RAM_MB = 512
 MAX_RECOMMENDED_RAM_MB = 65536
+DEFAULT_PROFILE_PRIORITY = 0
 DEFAULT_WHITELIST: list[str] = [
     "options.txt",
     "optionsof.txt",
@@ -180,6 +181,41 @@ def normalize_string_list(value: Any, field_name: str) -> list[str]:
         if text not in result:
             result.append(text)
     return result
+
+
+def normalize_priority(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Profile priority must be an integer") from exc
+
+
+def normalize_allowed_users(value: Any) -> list[str]:
+    return normalize_string_list(value, "allowed_users")
+
+
+def profile_usernames(user: dict[str, Any] | str | None) -> set[str]:
+    if user is None:
+        return set()
+    if isinstance(user, str):
+        values = [user]
+    elif isinstance(user, dict):
+        values = [
+            user.get("username"),
+            user.get("display_name"),
+            user.get("name"),
+            user.get("id"),
+        ]
+    else:
+        values = []
+    return {str(value).strip().casefold() for value in values if str(value or "").strip()}
+
+
+def profile_visible_to(profile: dict[str, Any], user: dict[str, Any] | str | None = None) -> bool:
+    if normalize_bool(profile.get("enabled"), True):
+        return True
+    allowed = {name.casefold() for name in normalize_allowed_users(profile.get("allowed_users"))}
+    return bool(allowed & profile_usernames(user))
 
 
 def split_server_address(value: Any, default_port: int = server_status.DEFAULT_PORT) -> tuple[str, int]:
@@ -442,6 +478,22 @@ def load_profiles() -> dict[str, dict[str, Any]]:
         if "blacklist" not in profile:
             profile["blacklist"] = list(DEFAULT_BLACKLIST)
             dirty = True
+        old_priority = profile.get("priority")
+        try:
+            profile["priority"] = normalize_priority(old_priority if old_priority is not None else DEFAULT_PROFILE_PRIORITY)
+        except ValueError:
+            profile["priority"] = DEFAULT_PROFILE_PRIORITY
+        if old_priority != profile["priority"]:
+            dirty = True
+        old_enabled = profile.get("enabled")
+        profile["enabled"] = normalize_bool(old_enabled, True)
+        if old_enabled != profile["enabled"]:
+            dirty = True
+        old_allowed_users = profile.get("allowed_users")
+        allowed_users = normalize_allowed_users(old_allowed_users)
+        if old_allowed_users != allowed_users:
+            profile["allowed_users"] = allowed_users
+            dirty = True
         old_ram_mb = profile.get("recommended_ram_mb")
         try:
             profile["recommended_ram_mb"] = normalize_recommended_ram_mb(
@@ -589,6 +641,9 @@ def create_profile(
         "source_dir": stored_source_dir(slug),
         "whitelist": list(DEFAULT_WHITELIST),
         "blacklist": list(DEFAULT_BLACKLIST),
+        "priority": DEFAULT_PROFILE_PRIORITY,
+        "enabled": True,
+        "allowed_users": [],
         "recommended_ram_mb": recommended_ram_mb,
         "optional_mods": [],
         "latest_build": None,
@@ -609,8 +664,18 @@ def get_profile(slug: str) -> dict[str, Any]:
         raise KeyError(f"Profile not found: {slug}") from exc
 
 
-def list_profiles() -> list[dict[str, Any]]:
-    return sorted(load_profiles().values(), key=lambda item: item["slug"])
+def list_profiles(
+    user: dict[str, Any] | str | None = None,
+    include_hidden: bool = False,
+) -> list[dict[str, Any]]:
+    return sorted(
+        (
+            profile
+            for profile in load_profiles().values()
+            if include_hidden or profile_visible_to(profile, user)
+        ),
+        key=lambda item: (-normalize_priority(item.get("priority")), item["slug"]),
+    )
 
 
 def public_profile(profile: dict[str, Any], include_server_status: bool = True) -> dict[str, Any]:
@@ -624,6 +689,8 @@ def public_profile(profile: dict[str, Any], include_server_status: bool = True) 
         "recommended_ram_mb": normalize_recommended_ram_mb(
             profile.get("recommended_ram_mb", DEFAULT_RECOMMENDED_RAM_MB)
         ),
+        "priority": normalize_priority(profile.get("priority", DEFAULT_PROFILE_PRIORITY)),
+        "enabled": normalize_bool(profile.get("enabled"), True),
         "optional_mods": normalize_optional_mods(profile.get("optional_mods")),
         "latest_build": profile.get("latest_build"),
         "server": server,
@@ -674,6 +741,48 @@ def set_recommended_ram(slug: str, ram_mb: int) -> dict[str, Any]:
     if slug not in profiles:
         raise KeyError(f"Profile not found: {slug}")
     profiles[slug]["recommended_ram_mb"] = normalize_recommended_ram_mb(ram_mb)
+    profiles[slug]["updated_at"] = now_iso()
+    save_profiles(profiles)
+    return profiles[slug]
+
+
+def set_profile_priority(slug: str, priority: int) -> dict[str, Any]:
+    profiles = load_profiles()
+    slug = profile_key(slug)
+    if slug not in profiles:
+        raise KeyError(f"Profile not found: {slug}")
+    profiles[slug]["priority"] = normalize_priority(priority)
+    profiles[slug]["updated_at"] = now_iso()
+    save_profiles(profiles)
+    return profiles[slug]
+
+
+def set_profile_enabled(slug: str, enabled: bool) -> dict[str, Any]:
+    profiles = load_profiles()
+    slug = profile_key(slug)
+    if slug not in profiles:
+        raise KeyError(f"Profile not found: {slug}")
+    profiles[slug]["enabled"] = bool(enabled)
+    profiles[slug]["updated_at"] = now_iso()
+    save_profiles(profiles)
+    return profiles[slug]
+
+
+def set_profile_allowed_user(slug: str, username: str, enabled: bool) -> dict[str, Any]:
+    profiles = load_profiles()
+    slug = profile_key(slug)
+    if slug not in profiles:
+        raise KeyError(f"Profile not found: {slug}")
+    username = str(username or "").strip()
+    if not username:
+        raise ValueError("Username is required")
+    allowed_users = normalize_allowed_users(profiles[slug].get("allowed_users"))
+    matched = next((item for item in allowed_users if item.casefold() == username.casefold()), None)
+    if enabled and matched is None:
+        allowed_users.append(username)
+    if not enabled and matched is not None:
+        allowed_users.remove(matched)
+    profiles[slug]["allowed_users"] = allowed_users
     profiles[slug]["updated_at"] = now_iso()
     save_profiles(profiles)
     return profiles[slug]

@@ -4,7 +4,7 @@ import asyncio
 import re
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
@@ -78,8 +78,29 @@ app.add_middleware(
 app.include_router(yggdrasil.router)
 
 
-def profiles_payload() -> dict[str, list[dict[str, Any]]]:
-    return {"profiles": [storage.public_profile(profile) for profile in storage.list_profiles()]}
+def token_from_authorization(value: str | None) -> str:
+    text = str(value or "").strip()
+    if text.lower().startswith("bearer "):
+        return text[7:].strip()
+    return text
+
+
+def user_for_token(access_token: str | None) -> dict[str, Any] | None:
+    try:
+        return auth.user_for_token(access_token)
+    except auth.AzuriomAuthError:
+        return None
+
+
+def profiles_payload(user: dict[str, Any] | None = None) -> dict[str, list[dict[str, Any]]]:
+    return {"profiles": [storage.public_profile(profile) for profile in storage.list_profiles(user)]}
+
+
+def require_visible_profile(slug: str, user: dict[str, Any] | None = None) -> dict[str, Any]:
+    profile = storage.get_profile(slug)
+    if not storage.profile_visible_to(profile, user):
+        raise KeyError(f"Profile not found: {slug}")
+    return profile
 
 
 def numeric_update_id(value: str) -> tuple[int, ...] | None:
@@ -184,13 +205,14 @@ def authlib_config() -> dict[str, Any]:
 
 
 @app.get("/api/v1/profiles")
-def profiles() -> dict[str, list[dict[str, Any]]]:
-    return profiles_payload()
+def profiles(authorization: str | None = Header(None)) -> dict[str, list[dict[str, Any]]]:
+    return profiles_payload(user_for_token(token_from_authorization(authorization)))
 
 
 @app.get("/api/v1/profiles/{slug}/latest")
-def latest(slug: str) -> dict[str, Any]:
+def latest(slug: str, authorization: str | None = Header(None)) -> dict[str, Any]:
     try:
+        require_visible_profile(slug, user_for_token(token_from_authorization(authorization)))
         return storage.build_profile(slug, config.public_base_url())
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -199,8 +221,9 @@ def latest(slug: str) -> dict[str, Any]:
 
 
 @app.get("/api/v1/profiles/{slug}/builds/{build_id}/manifest")
-def manifest(slug: str, build_id: str) -> dict[str, Any]:
+def manifest(slug: str, build_id: str, authorization: str | None = Header(None)) -> dict[str, Any]:
     try:
+        require_visible_profile(slug, user_for_token(token_from_authorization(authorization)))
         return storage.manifest_for(slug, build_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -266,15 +289,20 @@ def launcher_update(
     return launcher_update_payload(current_version, platform, current_update_id)
 
 
-async def websocket_result(message_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+async def websocket_result(
+    message_type: str,
+    payload: dict[str, Any],
+    user: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if message_type == "ping":
         return {"status": "ok", "version": __version__}
     if message_type == "profiles.list":
-        return await asyncio.to_thread(profiles_payload)
+        return await asyncio.to_thread(profiles_payload, user)
     if message_type == "profile.latest":
         slug = str(payload.get("slug") or "")
         if not slug:
             raise ValueError("slug is required")
+        require_visible_profile(slug, user)
         manifest_payload = await asyncio.to_thread(storage.build_profile, slug, config.public_base_url())
         await broadcast_profiles("profile_built")
         return manifest_payload
@@ -346,8 +374,9 @@ async def websocket_api(websocket: WebSocket) -> None:
             payload = message.get("payload") or {}
             if not isinstance(payload, dict):
                 payload = {}
+            user = await asyncio.to_thread(user_for_token, str(message.get("token") or ""))
             try:
-                result = await websocket_result(message_type, payload)
+                result = await websocket_result(message_type, payload, user)
             except Exception as exc:
                 await manager.send(
                     websocket,

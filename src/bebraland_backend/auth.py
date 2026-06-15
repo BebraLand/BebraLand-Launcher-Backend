@@ -101,6 +101,19 @@ def normalize_azuriom_user(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def user_for_token(access_token: str | None) -> dict[str, Any] | None:
+    access_token = str(access_token or "").strip()
+    if not access_token:
+        return None
+    cached = _tokens.get(access_token)
+    if cached and isinstance(cached.get("user"), dict):
+        return cached["user"]
+    verified = azuriom_verify(access_token)
+    user = normalize_azuriom_user(verified)
+    _tokens[access_token] = {"user": user, "provider": "azuriom", "created_at": time.time()}
+    return user
+
+
 def azuriom_login(email: str, password: str, code: str | None = None) -> dict[str, Any]:
     payload: dict[str, Any] = {"email": email, "password": password}
     if code:

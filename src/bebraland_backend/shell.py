@@ -20,7 +20,7 @@ class BebraLandShell(cmd.Cmd):
     prompt = "bebraland> "
 
     def do_profile(self, line: str) -> None:
-        """profile create <mc_version> <mod_loader> <loader_version> <name> [--ram-mb MB] [--icon PATH] [--background PATH] | profile assets <slug> [--icon PATH] [--background PATH] | profile runtime <slug> <mc_version> <mod_loader> [loader_version] | profile ram <slug> <mb> | profile server <slug> <host[:port]> [--port PORT] [--name NAME] | profile server <slug> --clear | profile clone <old> <new> | profile delete <name> | profile list | profile path <name>"""
+        """profile create <mc_version> <mod_loader> <loader_version> <name> [--ram-mb MB] [--icon PATH] [--background PATH] | profile assets <slug> [--icon PATH] [--background PATH] | profile runtime <slug> <mc_version> <mod_loader> [loader_version] | profile ram <slug> <mb> | profile priority <slug> <number> | profile enable <slug> | profile disable <slug> | profile user add|remove <slug> <username> | profile server <slug> <host[:port]> [--port PORT] [--name NAME] | profile server <slug> --clear | profile clone <old> <new> | profile delete <name> | profile list | profile path <name>"""
         args = shlex.split(line)
         if not args:
             console.print(self.do_profile.__doc__)
@@ -52,6 +52,25 @@ class BebraLandShell(cmd.Cmd):
                     return
                 profile = storage.set_recommended_ram(args[1], int(args[2]))
                 console.print(f"{profile['slug']} recommended RAM: {profile['recommended_ram_mb']} MB")
+            elif action == "priority":
+                if len(args) != 3:
+                    console.print("Usage: profile priority <slug> <number>")
+                    return
+                profile = storage.set_profile_priority(args[1], int(args[2]))
+                console.print(f"{profile['slug']} priority: {profile['priority']}")
+            elif action in {"enable", "disable"}:
+                if len(args) != 2:
+                    console.print(f"Usage: profile {action} <slug>")
+                    return
+                profile = storage.set_profile_enabled(args[1], action == "enable")
+                state = "enabled" if profile.get("enabled") else "disabled"
+                console.print(f"{profile['slug']} {state}")
+            elif action == "user":
+                if len(args) != 4 or args[1] not in {"add", "remove"}:
+                    console.print("Usage: profile user add|remove <slug> <username>")
+                    return
+                profile = storage.set_profile_allowed_user(args[2], args[3], args[1] == "add")
+                console.print(f"{profile['slug']} allowed users: {profile['allowed_users']}")
             elif action in {"assets", "art"}:
                 if len(args) < 3:
                     console.print("Usage: profile assets <slug> [--icon PATH] [--background PATH]")
@@ -205,18 +224,21 @@ class BebraLandShell(cmd.Cmd):
 
 def print_profiles() -> None:
     table = Table(title="Profiles")
-    for column in ("slug", "name", "mc", "loader", "loader_ver", "ram_mb", "server", "latest"):
+    for column in ("priority", "enabled", "slug", "name", "mc", "loader", "loader_ver", "ram_mb", "allowed", "server", "latest"):
         table.add_column(column)
-    for profile in storage.list_profiles():
+    for profile in storage.list_profiles(include_hidden=True):
         server = storage.normalize_profile_server(profile.get("server"))
         server_label = f"{server['host']}:{server['port']}" if server else "-"
         table.add_row(
+            str(profile.get("priority", storage.DEFAULT_PROFILE_PRIORITY)),
+            "yes" if storage.normalize_bool(profile.get("enabled"), True) else "no",
             profile["slug"],
             profile["name"],
             profile["minecraft_version"],
             profile["mod_loader"],
             profile["loader_version"],
             str(profile.get("recommended_ram_mb", storage.DEFAULT_RECOMMENDED_RAM_MB)),
+            ", ".join(storage.normalize_allowed_users(profile.get("allowed_users"))) or "-",
             server_label,
             str(profile.get("latest_build") or "-"),
         )
