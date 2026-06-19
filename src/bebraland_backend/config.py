@@ -23,6 +23,14 @@ def public_base_url() -> str:
     return os.environ.get("BEBRALAND_PUBLIC_BASE_URL", fallback).rstrip("/")
 
 
+def file_base_url() -> str:
+    return os.environ.get("BEBRALAND_FILE_BASE_URL", public_base_url()).rstrip("/")
+
+
+def relay_base_url() -> str:
+    return os.environ.get("BEBRALAND_RELAY_BASE_URL", "").rstrip("/")
+
+
 def authlib_server_name() -> str:
     return os.environ.get("BEBRALAND_AUTHLIB_SERVER_NAME", "BebraLand")
 

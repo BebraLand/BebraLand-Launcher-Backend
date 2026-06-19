@@ -280,7 +280,7 @@ def build(
     slug: str,
     base_url: str | None = typer.Option(None, "--base-url"),
 ) -> None:
-    manifest = storage.build_profile(slug, base_url or config.public_base_url())
+    manifest = storage.build_profile(slug, base_url or config.file_base_url())
     console.print(f"Build: [green]{manifest['build_id']}[/green]")
     console.print(f"Files: {manifest['file_count']}, bytes: {manifest['total_size']}")
     console.print(f"SHA256: {manifest['content_hash']}")

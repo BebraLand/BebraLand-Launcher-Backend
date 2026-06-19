@@ -5,6 +5,8 @@ import hashlib
 import json
 import re
 from typing import Any
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 
 from fastapi import FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -165,6 +167,39 @@ def launcher_update_payload(current_version: str, platform: str, current_update_
     }
 
 
+def relay_enabled() -> bool:
+    relay = config.relay_base_url()
+    return bool(relay and relay != config.public_base_url())
+
+
+def relay_json(path: str, access_token: str | None = None) -> dict[str, Any]:
+    base = config.relay_base_url()
+    if not base:
+        raise RuntimeError("Relay backend is not configured")
+    request = Request(f"{base}{path}", headers={"Accept": "application/json"}, method="GET")
+    if access_token:
+        request.add_header("Authorization", f"Bearer {access_token}")
+    with urlopen(request, timeout=120) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError("Relay backend returned invalid JSON")
+    return payload
+
+
+def latest_manifest_payload(slug: str, access_token: str | None, user: dict[str, Any] | None) -> dict[str, Any]:
+    require_visible_profile(slug, user)
+    if relay_enabled():
+        return relay_json(f"/api/v1/profiles/{quote(slug)}/latest", access_token)
+    return storage.build_profile(slug, config.file_base_url())
+
+
+def manifest_payload(slug: str, build_id: str, access_token: str | None, user: dict[str, Any] | None) -> dict[str, Any]:
+    require_visible_profile(slug, user)
+    if relay_enabled():
+        return relay_json(f"/api/v1/profiles/{quote(slug)}/builds/{quote(build_id)}/manifest", access_token)
+    return storage.manifest_for(slug, build_id)
+
+
 def storage_signature() -> tuple[tuple[str, int, int], ...]:
     storage.ensure_data_dirs()
     watched = [storage.profiles_file()]
@@ -244,9 +279,9 @@ def profiles(authorization: str | None = Header(None)) -> dict[str, list[dict[st
 
 @app.get("/api/v1/profiles/{slug}/latest")
 def latest(slug: str, authorization: str | None = Header(None)) -> dict[str, Any]:
+    access_token = token_from_authorization(authorization)
     try:
-        require_visible_profile(slug, user_for_token(token_from_authorization(authorization)))
-        return storage.build_profile(slug, config.public_base_url())
+        return latest_manifest_payload(slug, access_token, user_for_token(access_token))
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except KeyError as exc:
@@ -255,9 +290,9 @@ def latest(slug: str, authorization: str | None = Header(None)) -> dict[str, Any
 
 @app.get("/api/v1/profiles/{slug}/builds/{build_id}/manifest")
 def manifest(slug: str, build_id: str, authorization: str | None = Header(None)) -> dict[str, Any]:
+    access_token = token_from_authorization(authorization)
     try:
-        require_visible_profile(slug, user_for_token(token_from_authorization(authorization)))
-        return storage.manifest_for(slug, build_id)
+        return manifest_payload(slug, build_id, access_token, user_for_token(access_token))
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -325,6 +360,7 @@ def launcher_update(
 async def websocket_result(
     message_type: str,
     payload: dict[str, Any],
+    access_token: str | None = None,
     user: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if message_type == "ping":
@@ -341,8 +377,7 @@ async def websocket_result(
         slug = str(payload.get("slug") or "")
         if not slug:
             raise ValueError("slug is required")
-        require_visible_profile(slug, user)
-        manifest_payload = await asyncio.to_thread(storage.build_profile, slug, config.public_base_url())
+        manifest_payload = await asyncio.to_thread(latest_manifest_payload, slug, access_token, user)
         await broadcast_profiles("profile_built")
         return manifest_payload
     if message_type == "auth.azuriom.login":
@@ -411,10 +446,11 @@ async def websocket_api(websocket: WebSocket) -> None:
             payload = message.get("payload") or {}
             if not isinstance(payload, dict):
                 payload = {}
-            user = await asyncio.to_thread(user_for_token, str(message.get("token") or ""))
+            access_token = str(message.get("token") or "")
+            user = await asyncio.to_thread(user_for_token, access_token)
             await manager.set_user(websocket, user)
             try:
-                result = await websocket_result(message_type, payload, user)
+                result = await websocket_result(message_type, payload, access_token, user)
             except Exception as exc:
                 await manager.send(
                     websocket,

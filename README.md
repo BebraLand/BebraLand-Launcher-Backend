@@ -20,10 +20,17 @@ Config lives in `.env`:
 BEBRALAND_HOST=127.0.0.1
 BEBRALAND_PORT=8765
 BEBRALAND_PUBLIC_BASE_URL=http://127.0.0.1:8765
+BEBRALAND_FILE_BASE_URL=http://127.0.0.1:8765
+BEBRALAND_RELAY_BASE_URL=
 AZURIOM_URL=https://your-azuriom-site.example
 BEBRALAND_AUTHLIB_SERVER_NAME=BebraLand
 BEBRALAND_SKIN_DOMAINS=
 ```
+
+`BEBRALAND_PUBLIC_BASE_URL` is the stable control/API backend URL. `BEBRALAND_FILE_BASE_URL`
+is written into pack manifests for `/files/...` downloads. `BEBRALAND_RELAY_BASE_URL` makes this
+backend fetch profile manifests from another backend, useful when an always-on VM handles auth/API
+and a home server handles pack files.
 
 ## Profiles
 

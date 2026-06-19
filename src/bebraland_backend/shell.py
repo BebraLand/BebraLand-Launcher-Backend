@@ -248,7 +248,7 @@ class BebraLandShell(cmd.Cmd):
             console.print("Usage: build <slug> [base_url]")
             return
         try:
-            manifest = storage.build_profile(args[0], args[1] if len(args) > 1 else config.public_base_url())
+            manifest = storage.build_profile(args[0], args[1] if len(args) > 1 else config.file_base_url())
             console.print(
                 f"Build {manifest['build_id']} files={manifest['file_count']} sha={manifest['content_hash']}"
             )
