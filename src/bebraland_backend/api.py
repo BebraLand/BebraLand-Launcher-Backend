@@ -32,6 +32,7 @@ class ConnectionManager:
         self._clients: set[WebSocket] = set()
         self._send_locks: dict[WebSocket, asyncio.Lock] = {}
         self._users: dict[WebSocket, dict[str, Any] | None] = {}
+        self._tokens: dict[WebSocket, str] = {}
         self._lock = asyncio.Lock()
 
     async def connect(self, websocket: WebSocket) -> None:
@@ -40,21 +41,24 @@ class ConnectionManager:
             self._clients.add(websocket)
             self._send_locks[websocket] = asyncio.Lock()
             self._users[websocket] = None
+            self._tokens[websocket] = ""
 
     async def disconnect(self, websocket: WebSocket) -> None:
         async with self._lock:
             self._clients.discard(websocket)
             self._send_locks.pop(websocket, None)
             self._users.pop(websocket, None)
+            self._tokens.pop(websocket, None)
 
-    async def set_user(self, websocket: WebSocket, user: dict[str, Any] | None) -> None:
+    async def set_user(self, websocket: WebSocket, user: dict[str, Any] | None, access_token: str = "") -> None:
         async with self._lock:
             if websocket in self._clients:
                 self._users[websocket] = user
+                self._tokens[websocket] = access_token
 
-    async def clients_with_users(self) -> list[tuple[WebSocket, dict[str, Any] | None]]:
+    async def clients_with_users(self) -> list[tuple[WebSocket, dict[str, Any] | None, str]]:
         async with self._lock:
-            return [(client, self._users.get(client)) for client in self._clients]
+            return [(client, self._users.get(client), self._tokens.get(client, "")) for client in self._clients]
 
     async def send(self, websocket: WebSocket, payload: dict[str, Any]) -> None:
         async with self._lock:
@@ -79,6 +83,7 @@ class ConnectionManager:
                     self._clients.discard(client)
                     self._send_locks.pop(client, None)
                     self._users.pop(client, None)
+                    self._tokens.pop(client, None)
 
 
 manager = ConnectionManager()
@@ -109,7 +114,13 @@ def user_for_token(access_token: str | None) -> dict[str, Any] | None:
         return None
 
 
-def profiles_payload(user: dict[str, Any] | None = None) -> dict[str, list[dict[str, Any]]]:
+def profiles_payload(user: dict[str, Any] | None = None, access_token: str | None = None) -> dict[str, list[dict[str, Any]]]:
+    if relay_enabled():
+        payload = relay_json("/api/v1/profiles", access_token)
+        profiles = payload.get("profiles")
+        if not isinstance(profiles, list):
+            raise RuntimeError("Relay backend returned invalid profiles payload")
+        return {"profiles": profiles}
     return {"profiles": [storage.public_profile(profile) for profile in storage.list_profiles(user)]}
 
 
@@ -118,8 +129,8 @@ def profiles_hash(profiles: list[dict[str, Any]]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def profiles_payload_with_hash(user: dict[str, Any] | None = None) -> dict[str, Any]:
-    payload = profiles_payload(user)
+def profiles_payload_with_hash(user: dict[str, Any] | None = None, access_token: str | None = None) -> dict[str, Any]:
+    payload = profiles_payload(user, access_token)
     payload["profiles_hash"] = profiles_hash(payload["profiles"])
     return payload
 
@@ -187,16 +198,16 @@ def relay_json(path: str, access_token: str | None = None) -> dict[str, Any]:
 
 
 def latest_manifest_payload(slug: str, access_token: str | None, user: dict[str, Any] | None) -> dict[str, Any]:
-    require_visible_profile(slug, user)
     if relay_enabled():
         return relay_json(f"/api/v1/profiles/{quote(slug)}/latest", access_token)
+    require_visible_profile(slug, user)
     return storage.build_profile(slug, config.file_base_url())
 
 
 def manifest_payload(slug: str, build_id: str, access_token: str | None, user: dict[str, Any] | None) -> dict[str, Any]:
-    require_visible_profile(slug, user)
     if relay_enabled():
         return relay_json(f"/api/v1/profiles/{quote(slug)}/builds/{quote(build_id)}/manifest", access_token)
+    require_visible_profile(slug, user)
     return storage.manifest_for(slug, build_id)
 
 
@@ -229,9 +240,9 @@ def root() -> JSONResponse:
 
 async def broadcast_profiles(reason: str) -> None:
     stale: list[WebSocket] = []
-    for websocket, user in await manager.clients_with_users():
+    for websocket, user, access_token in await manager.clients_with_users():
         try:
-            payload = await asyncio.to_thread(profiles_payload_with_hash, user)
+            payload = await asyncio.to_thread(profiles_payload_with_hash, user, access_token)
             await manager.send(websocket, {"type": "profiles.changed", "reason": reason, **payload})
         except Exception:
             stale.append(websocket)
@@ -252,6 +263,9 @@ async def watch_storage_changes() -> None:
 @app.on_event("startup")
 async def start_realtime_watcher() -> None:
     storage.ensure_data_dirs()
+    if relay_enabled():
+        app.state.realtime_watcher = None
+        return
     app.state.realtime_watcher = asyncio.create_task(watch_storage_changes())
 
 
@@ -274,7 +288,8 @@ def authlib_config() -> dict[str, Any]:
 
 @app.get("/api/v1/profiles")
 def profiles(authorization: str | None = Header(None)) -> dict[str, list[dict[str, Any]]]:
-    return profiles_payload(user_for_token(token_from_authorization(authorization)))
+    access_token = token_from_authorization(authorization)
+    return profiles_payload(user_for_token(access_token), access_token)
 
 
 @app.get("/api/v1/profiles/{slug}/latest")
@@ -366,10 +381,10 @@ async def websocket_result(
     if message_type == "ping":
         return {"status": "ok", "version": __version__}
     if message_type == "profiles.list":
-        return await asyncio.to_thread(profiles_payload_with_hash, user)
+        return await asyncio.to_thread(profiles_payload_with_hash, user, access_token)
     if message_type == "profiles.check":
         current_hash = str(payload.get("hash") or "")
-        profile_payload = await asyncio.to_thread(profiles_payload_with_hash, user)
+        profile_payload = await asyncio.to_thread(profiles_payload_with_hash, user, access_token)
         if current_hash and current_hash == profile_payload["profiles_hash"]:
             return {"unchanged": True, "profiles_hash": current_hash}
         return {"unchanged": False, **profile_payload}
@@ -448,7 +463,7 @@ async def websocket_api(websocket: WebSocket) -> None:
                 payload = {}
             access_token = str(message.get("token") or "")
             user = await asyncio.to_thread(user_for_token, access_token)
-            await manager.set_user(websocket, user)
+            await manager.set_user(websocket, user, access_token)
             try:
                 result = await websocket_result(message_type, payload, access_token, user)
             except Exception as exc:
