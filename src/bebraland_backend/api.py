@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import re
 from typing import Any
 
@@ -109,6 +111,17 @@ def profiles_payload(user: dict[str, Any] | None = None) -> dict[str, list[dict[
     return {"profiles": [storage.public_profile(profile) for profile in storage.list_profiles(user)]}
 
 
+def profiles_hash(profiles: list[dict[str, Any]]) -> str:
+    payload = json.dumps(profiles, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def profiles_payload_with_hash(user: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload = profiles_payload(user)
+    payload["profiles_hash"] = profiles_hash(payload["profiles"])
+    return payload
+
+
 def require_visible_profile(slug: str, user: dict[str, Any] | None = None) -> dict[str, Any]:
     profile = storage.get_profile(slug)
     if not storage.profile_visible_to(profile, user):
@@ -183,7 +196,7 @@ async def broadcast_profiles(reason: str) -> None:
     stale: list[WebSocket] = []
     for websocket, user in await manager.clients_with_users():
         try:
-            payload = await asyncio.to_thread(profiles_payload, user)
+            payload = await asyncio.to_thread(profiles_payload_with_hash, user)
             await manager.send(websocket, {"type": "profiles.changed", "reason": reason, **payload})
         except Exception:
             stale.append(websocket)
@@ -317,7 +330,13 @@ async def websocket_result(
     if message_type == "ping":
         return {"status": "ok", "version": __version__}
     if message_type == "profiles.list":
-        return await asyncio.to_thread(profiles_payload, user)
+        return await asyncio.to_thread(profiles_payload_with_hash, user)
+    if message_type == "profiles.check":
+        current_hash = str(payload.get("hash") or "")
+        profile_payload = await asyncio.to_thread(profiles_payload_with_hash, user)
+        if current_hash and current_hash == profile_payload["profiles_hash"]:
+            return {"unchanged": True, "profiles_hash": current_hash}
+        return {"unchanged": False, **profile_payload}
     if message_type == "profile.latest":
         slug = str(payload.get("slug") or "")
         if not slug:
@@ -385,8 +404,6 @@ async def websocket_api(websocket: WebSocket) -> None:
     await manager.connect(websocket)
     try:
         await manager.send(websocket, {"type": "hello", "version": __version__})
-        initial_profiles = await asyncio.to_thread(profiles_payload)
-        await manager.send(websocket, {"type": "profiles.changed", "reason": "hello", **initial_profiles})
         while True:
             message = await websocket.receive_json()
             message_id = message.get("id")
