@@ -615,6 +615,7 @@ def create_profile(
     loader_version: str,
     name: str,
     recommended_ram_mb: int = DEFAULT_RECOMMENDED_RAM_MB,
+    description: str = "",
 ) -> dict[str, Any]:
     profiles = load_profiles()
     slug = slugify(name)
@@ -635,6 +636,7 @@ def create_profile(
     profile = {
         "slug": slug,
         "name": name,
+        "description": str(description or "").strip(),
         "minecraft_version": minecraft_version,
         "mod_loader": mod_loader.lower(),
         "loader_version": loader_version,
@@ -683,6 +685,7 @@ def public_profile(profile: dict[str, Any], include_server_status: bool = True) 
     payload = {
         "slug": profile["slug"],
         "name": profile["name"],
+        "description": str(profile.get("description") or "").strip(),
         "minecraft_version": profile["minecraft_version"],
         "mod_loader": profile["mod_loader"],
         "loader_version": profile["loader_version"],
@@ -741,6 +744,17 @@ def set_recommended_ram(slug: str, ram_mb: int) -> dict[str, Any]:
     if slug not in profiles:
         raise KeyError(f"Profile not found: {slug}")
     profiles[slug]["recommended_ram_mb"] = normalize_recommended_ram_mb(ram_mb)
+    profiles[slug]["updated_at"] = now_iso()
+    save_profiles(profiles)
+    return profiles[slug]
+
+
+def set_profile_description(slug: str, description: str) -> dict[str, Any]:
+    profiles = load_profiles()
+    slug = profile_key(slug)
+    if slug not in profiles:
+        raise KeyError(f"Profile not found: {slug}")
+    profiles[slug]["description"] = str(description or "").strip()
     profiles[slug]["updated_at"] = now_iso()
     save_profiles(profiles)
     return profiles[slug]
@@ -1036,6 +1050,7 @@ def profile_manifest_signature(profile: dict[str, Any], optional_mods: list[dict
         profile["minecraft_version"],
         profile["mod_loader"],
         profile["loader_version"],
+        str(profile.get("description") or ""),
         str(profile.get("recommended_ram_mb", DEFAULT_RECOMMENDED_RAM_MB)),
         json.dumps(normalize_profile_server(profile.get("server")), sort_keys=True, separators=(",", ":"), ensure_ascii=False),
         profile_asset_url(profile, "icon"),
@@ -1130,6 +1145,7 @@ def build_profile(slug: str, base_url: str) -> dict[str, Any]:
         profile["minecraft_version"],
         profile["mod_loader"],
         profile["loader_version"],
+        str(profile.get("description") or ""),
         str(profile.get("recommended_ram_mb", DEFAULT_RECOMMENDED_RAM_MB)),
         json.dumps(normalize_profile_server(profile.get("server")), sort_keys=True, separators=(",", ":"), ensure_ascii=False),
         profile_asset_url(profile, "icon"),

@@ -31,16 +31,16 @@ class BebraLandShell(cmd.Cmd):
                 if len(args) < 5:
                     console.print(
                         "Usage: profile create <mc_version> <mod_loader> <loader_version> <name> "
-                        "[--ram-mb MB] [--icon PATH] [--background PATH]"
+                        "[--ram-mb MB] [--description TEXT] [--icon PATH] [--background PATH]"
                     )
                     return
                 try:
-                    ram_mb, icon, background = parse_profile_options(args)
+                    ram_mb, icon, background, description = parse_profile_options(args)
                 except ValueError as exc:
                     console.print(f"[red]{exc}[/red]")
                     return
                 name = " ".join(args[4:])
-                profile = storage.create_profile(args[1], args[2], args[3], name, ram_mb)
+                profile = storage.create_profile(args[1], args[2], args[3], name, ram_mb, description)
                 if icon or background:
                     profile = storage.set_profile_assets(profile["slug"], icon=icon, background=background)
                 console.print(f"Created {profile['slug']}: {profile['source_dir']}")
@@ -52,6 +52,12 @@ class BebraLandShell(cmd.Cmd):
                     return
                 profile = storage.set_recommended_ram(args[1], int(args[2]))
                 console.print(f"{profile['slug']} recommended RAM: {profile['recommended_ram_mb']} MB")
+            elif action in {"description", "desc"}:
+                if len(args) < 3:
+                    console.print("Usage: profile description <slug> <text>")
+                    return
+                profile = storage.set_profile_description(args[1], " ".join(args[2:]))
+                console.print(f"{profile['slug']} description updated")
             elif action == "priority":
                 if len(args) != 3:
                     console.print("Usage: profile priority <slug> <number>")
@@ -76,7 +82,7 @@ class BebraLandShell(cmd.Cmd):
                     console.print("Usage: profile assets <slug> [--icon PATH] [--background PATH]")
                     return
                 try:
-                    _, icon, background = parse_profile_options(args)
+                    _, icon, background, _ = parse_profile_options(args)
                 except ValueError as exc:
                     console.print(f"[red]{exc}[/red]")
                     return
@@ -301,6 +307,7 @@ def print_profile_help() -> None:
         "Profile commands:",
         "  profile list",
         "  profile create <mc_version> <mod_loader> <loader_version> <name> [--ram-mb MB]",
+        "  profile description <slug> <text>",
         "  profile assets <slug> [--icon PATH] [--background PATH]",
         "  profile runtime <slug> <mc_version> <mod_loader> [loader_version]",
         "  profile ram <slug> <mb>",
@@ -324,13 +331,16 @@ def print_profile_help() -> None:
     console.print("\n".join(lines), markup=False)
 
 
-def parse_profile_options(args: list[str]) -> tuple[int, Path | None, Path | None]:
+def parse_profile_options(args: list[str]) -> tuple[int, Path | None, Path | None, str]:
     ram_mb = storage.DEFAULT_RECOMMENDED_RAM_MB
     icon: Path | None = None
     background: Path | None = None
+    description = ""
     options = {
         "--ram-mb": "ram",
         "--recommended-ram-mb": "ram",
+        "--description": "description",
+        "--desc": "description",
         "--icon": "icon",
         "--background": "background",
     }
@@ -354,8 +364,10 @@ def parse_profile_options(args: list[str]) -> tuple[int, Path | None, Path | Non
             icon = Path(value)
         elif kind == "background":
             background = Path(value)
+        elif kind == "description":
+            description = value
         del args[index : index + 2]
-    return ram_mb, icon, background
+    return ram_mb, icon, background, description
 
 
 def print_profile_assets(profile: dict[str, object]) -> None:

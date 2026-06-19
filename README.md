@@ -37,7 +37,7 @@ and a home server handles pack files.
 Create profile:
 
 ```text
-profile create <mc_version> <modloader> <modloader_version> <name> [--ram-mb 2048]
+profile create <mc_version> <modloader> <modloader_version> <name> [--ram-mb 2048] [--description "Short text"]
 ```
 
 Example:
@@ -56,6 +56,7 @@ profile runtime PaperlandIterion 1.21.1 neoforge 21.1.227
 profile hotswap PaperlandIterion 1.20.1 forge 47.4.0
 profile loader PaperlandIterion 1.21.1 vanilla
 profile ram PaperlandIterion 4096
+profile description PaperlandIterion "Short text shown under the pack name"
 profile server PaperlandIterion play.example.com --port 25565 --name BebraLand
 profile server PaperlandIterion --clear
 profile assets PaperlandIterion --icon C:\packs\icon.png --background C:\packs\background.jpg
@@ -64,6 +65,16 @@ profile list
 profile delete PaperlandIterion
 build PaperlandIterion
 serve
+```
+
+Profile `description` can also be edited directly in `data/profiles.json`:
+
+```json
+{
+  "paperland-iterion": {
+    "description": "Short text shown under the pack name."
+  }
+}
 ```
 
 Profile assets are copied into `data/assets/profiles/<slug>/` and served as:

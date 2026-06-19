@@ -38,10 +38,11 @@ def profile_create(
         "--recommended-ram-mb",
         help="Recommended launcher RAM in MB.",
     ),
+    description: str = typer.Option("", "--description", "--desc", help="Short profile description shown on launcher home."),
     icon: Path | None = typer.Option(None, "--icon", help="Profile icon image: png, jpg, jpeg, or webp."),
     background: Path | None = typer.Option(None, "--background", help="Profile background image: png, jpg, jpeg, or webp."),
 ) -> None:
-    profile = storage.create_profile(minecraft_version, mod_loader, loader_version, name, recommended_ram_mb)
+    profile = storage.create_profile(minecraft_version, mod_loader, loader_version, name, recommended_ram_mb, description)
     if icon or background:
         profile = storage.set_profile_assets(profile["slug"], icon=icon, background=background)
     console.print(f"Created [green]{profile['slug']}[/green]")
@@ -98,6 +99,12 @@ def profile_path(slug: str) -> None:
 def profile_ram(slug: str, ram_mb: int) -> None:
     profile = storage.set_recommended_ram(slug, ram_mb)
     console.print(f"{profile['slug']} recommended RAM: {profile['recommended_ram_mb']} MB")
+
+
+@profile_app.command("description")
+def profile_description(slug: str, description: str = typer.Argument("", help="Short profile description.")) -> None:
+    profile = storage.set_profile_description(slug, description)
+    console.print(f"{profile['slug']} description updated")
 
 
 @profile_app.command("priority")
