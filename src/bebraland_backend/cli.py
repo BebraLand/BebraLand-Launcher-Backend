@@ -17,6 +17,7 @@ app = typer.Typer(
     invoke_without_command=True,
 )
 profile_app = typer.Typer(help="Manage modpack profiles.")
+admin_app = typer.Typer(help="Manage global launcher admins.")
 release_app = typer.Typer(help="Manage launcher update metadata.")
 
 
@@ -60,6 +61,7 @@ def profile_list() -> None:
     for column in (
         "priority",
         "enabled",
+        "opening",
         "slug",
         "name",
         "minecraft",
@@ -77,6 +79,7 @@ def profile_list() -> None:
         table.add_row(
             str(profile.get("priority", storage.DEFAULT_PROFILE_PRIORITY)),
             "yes" if storage.normalize_bool(profile.get("enabled"), True) else "no",
+            "yes" if storage.normalize_bool(profile.get("opening_mode"), False) else "no",
             profile["slug"],
             profile["name"],
             profile["minecraft_version"],
@@ -125,6 +128,26 @@ def profile_disable(slug: str) -> None:
     console.print(f"{profile['slug']} disabled")
 
 
+@profile_app.command("opening")
+def profile_opening(slug: str, enabled: bool = typer.Argument(..., help="Use true/on or false/off.")) -> None:
+    """Toggle Opening Mode: everyone can download, only global admins can launch."""
+    profile = storage.set_profile_opening_mode(slug, enabled)
+    state = "on" if profile["opening_mode"] else "off"
+    console.print(f"{profile['slug']} Opening Mode: {state}")
+
+
+@profile_app.command("opening-on")
+def profile_opening_on(slug: str) -> None:
+    profile = storage.set_profile_opening_mode(slug, True)
+    console.print(f"{profile['slug']} Opening Mode: on")
+
+
+@profile_app.command("opening-off")
+def profile_opening_off(slug: str) -> None:
+    profile = storage.set_profile_opening_mode(slug, False)
+    console.print(f"{profile['slug']} Opening Mode: off")
+
+
 @profile_app.command("user-add")
 def profile_user_add(slug: str, username: str) -> None:
     profile = storage.set_profile_allowed_user(slug, username, True)
@@ -135,6 +158,24 @@ def profile_user_add(slug: str, username: str) -> None:
 def profile_user_remove(slug: str, username: str) -> None:
     profile = storage.set_profile_allowed_user(slug, username, False)
     console.print(f"{profile['slug']} allowed users: {profile['allowed_users']}")
+
+
+@admin_app.command("list")
+def admin_list() -> None:
+    users = storage.load_admin_users()
+    console.print(", ".join(users) if users else "No global launcher admins")
+
+
+@admin_app.command("add")
+def admin_add(username: str) -> None:
+    users = storage.set_admin_user(username, True)
+    console.print(f"Global admins: {', '.join(users)}")
+
+
+@admin_app.command("remove")
+def admin_remove(username: str) -> None:
+    users = storage.set_admin_user(username, False)
+    console.print(f"Global admins: {', '.join(users) or '-'}")
 
 
 @profile_app.command("server")
@@ -338,4 +379,5 @@ def release_show(platform: str | None = typer.Option(None, "--platform")) -> Non
 
 
 app.add_typer(profile_app, name="profile")
+app.add_typer(admin_app, name="admin")
 app.add_typer(release_app, name="release")

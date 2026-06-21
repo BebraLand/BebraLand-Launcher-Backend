@@ -69,6 +69,10 @@ def profiles_file() -> Path:
     return data_dir() / "profiles.json"
 
 
+def admins_file() -> Path:
+    return data_dir() / "admins.json"
+
+
 def ensure_data_dirs() -> None:
     for child in ("sources", "builds", "releases", "assets"):
         (data_dir() / child).mkdir(parents=True, exist_ok=True)
@@ -194,6 +198,16 @@ def normalize_allowed_users(value: Any) -> list[str]:
     return normalize_string_list(value, "allowed_users")
 
 
+def load_admin_users() -> list[str]:
+    """Return global launcher admins stored in data/admins.json."""
+    ensure_data_dirs()
+    return normalize_string_list(read_json(admins_file(), []), "admins")
+
+
+def save_admin_users(users: list[str]) -> None:
+    write_json(admins_file(), normalize_string_list(users, "admins"))
+
+
 def profile_usernames(user: dict[str, Any] | str | None) -> set[str]:
     if user is None:
         return set()
@@ -211,11 +225,28 @@ def profile_usernames(user: dict[str, Any] | str | None) -> set[str]:
     return {str(value).strip().casefold() for value in values if str(value or "").strip()}
 
 
+def user_is_admin(user: dict[str, Any] | str | None = None) -> bool:
+    return bool(profile_usernames(user) & {name.casefold() for name in load_admin_users()})
+
+
 def profile_visible_to(profile: dict[str, Any], user: dict[str, Any] | str | None = None) -> bool:
+    if user_is_admin(user):
+        return True
+    if normalize_bool(profile.get("opening_mode"), False):
+        return True
     if normalize_bool(profile.get("enabled"), True):
         return True
     allowed = {name.casefold() for name in normalize_allowed_users(profile.get("allowed_users"))}
     return bool(allowed & profile_usernames(user))
+
+
+def profile_launch_allowed(profile: dict[str, Any], user: dict[str, Any] | str | None = None) -> bool:
+    """Opening packs are downloadable by everyone; only admins may launch them."""
+    if user_is_admin(user):
+        return True
+    if normalize_bool(profile.get("opening_mode"), False):
+        return False
+    return profile_visible_to(profile, user)
 
 
 def split_server_address(value: Any, default_port: int = server_status.DEFAULT_PORT) -> tuple[str, int]:
@@ -489,6 +520,10 @@ def load_profiles() -> dict[str, dict[str, Any]]:
         profile["enabled"] = normalize_bool(old_enabled, True)
         if old_enabled != profile["enabled"]:
             dirty = True
+        old_opening_mode = profile.get("opening_mode")
+        profile["opening_mode"] = normalize_bool(old_opening_mode, False)
+        if old_opening_mode != profile["opening_mode"]:
+            dirty = True
         old_allowed_users = profile.get("allowed_users")
         allowed_users = normalize_allowed_users(old_allowed_users)
         if old_allowed_users != allowed_users:
@@ -645,6 +680,7 @@ def create_profile(
         "blacklist": list(DEFAULT_BLACKLIST),
         "priority": DEFAULT_PROFILE_PRIORITY,
         "enabled": True,
+        "opening_mode": False,
         "allowed_users": [],
         "recommended_ram_mb": recommended_ram_mb,
         "optional_mods": [],
@@ -680,7 +716,11 @@ def list_profiles(
     )
 
 
-def public_profile(profile: dict[str, Any], include_server_status: bool = True) -> dict[str, Any]:
+def public_profile(
+    profile: dict[str, Any],
+    include_server_status: bool = True,
+    user: dict[str, Any] | str | None = None,
+) -> dict[str, Any]:
     server = normalize_profile_server(profile.get("server"))
     payload = {
         "slug": profile["slug"],
@@ -694,6 +734,8 @@ def public_profile(profile: dict[str, Any], include_server_status: bool = True) 
         ),
         "priority": normalize_priority(profile.get("priority", DEFAULT_PROFILE_PRIORITY)),
         "enabled": normalize_bool(profile.get("enabled"), True),
+        "opening_mode": normalize_bool(profile.get("opening_mode"), False),
+        "launch_allowed": profile_launch_allowed(profile, user),
         "optional_mods": normalize_optional_mods(profile.get("optional_mods")),
         "latest_build": profile.get("latest_build"),
         "server": server,
@@ -780,6 +822,31 @@ def set_profile_enabled(slug: str, enabled: bool) -> dict[str, Any]:
     profiles[slug]["updated_at"] = now_iso()
     save_profiles(profiles)
     return profiles[slug]
+
+
+def set_profile_opening_mode(slug: str, enabled: bool) -> dict[str, Any]:
+    profiles = load_profiles()
+    slug = profile_key(slug)
+    if slug not in profiles:
+        raise KeyError(f"Profile not found: {slug}")
+    profiles[slug]["opening_mode"] = bool(enabled)
+    profiles[slug]["updated_at"] = now_iso()
+    save_profiles(profiles)
+    return profiles[slug]
+
+
+def set_admin_user(username: str, enabled: bool) -> list[str]:
+    username = str(username or "").strip()
+    if not username:
+        raise ValueError("Username is required")
+    users = load_admin_users()
+    matched = next((item for item in users if item.casefold() == username.casefold()), None)
+    if enabled and matched is None:
+        users.append(username)
+    if not enabled and matched is not None:
+        users.remove(matched)
+    save_admin_users(users)
+    return users
 
 
 def set_profile_allowed_user(slug: str, username: str, enabled: bool) -> dict[str, Any]:

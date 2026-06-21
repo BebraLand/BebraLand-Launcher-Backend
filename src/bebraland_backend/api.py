@@ -121,7 +121,7 @@ def profiles_payload(user: dict[str, Any] | None = None, access_token: str | Non
         if not isinstance(profiles, list):
             raise RuntimeError("Relay backend returned invalid profiles payload")
         return {"profiles": profiles}
-    return {"profiles": [storage.public_profile(profile) for profile in storage.list_profiles(user)]}
+    return {"profiles": [storage.public_profile(profile, user=user) for profile in storage.list_profiles(user)]}
 
 
 def profiles_hash(profiles: list[dict[str, Any]]) -> str:
@@ -200,20 +200,24 @@ def relay_json(path: str, access_token: str | None = None) -> dict[str, Any]:
 def latest_manifest_payload(slug: str, access_token: str | None, user: dict[str, Any] | None) -> dict[str, Any]:
     if relay_enabled():
         return relay_json(f"/api/v1/profiles/{quote(slug)}/latest", access_token)
-    require_visible_profile(slug, user)
-    return storage.build_profile(slug, config.file_base_url())
+    profile = require_visible_profile(slug, user)
+    payload = storage.build_profile(slug, config.file_base_url())
+    payload["profile"] = storage.public_profile(profile, include_server_status=False, user=user)
+    return payload
 
 
 def manifest_payload(slug: str, build_id: str, access_token: str | None, user: dict[str, Any] | None) -> dict[str, Any]:
     if relay_enabled():
         return relay_json(f"/api/v1/profiles/{quote(slug)}/builds/{quote(build_id)}/manifest", access_token)
-    require_visible_profile(slug, user)
-    return storage.manifest_for(slug, build_id)
+    profile = require_visible_profile(slug, user)
+    payload = storage.manifest_for(slug, build_id)
+    payload["profile"] = storage.public_profile(profile, include_server_status=False, user=user)
+    return payload
 
 
 def storage_signature() -> tuple[tuple[str, int, int], ...]:
     storage.ensure_data_dirs()
-    watched = [storage.profiles_file()]
+    watched = [storage.profiles_file(), storage.admins_file()]
     builds_root = storage.data_dir() / "builds"
     if builds_root.exists():
         watched.extend(build_root / "latest.json" for build_root in builds_root.iterdir() if build_root.is_dir())

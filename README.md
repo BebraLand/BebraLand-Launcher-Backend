@@ -61,6 +61,11 @@ profile server PaperlandIterion play.example.com --port 25565 --name BebraLand
 profile server PaperlandIterion --clear
 profile assets PaperlandIterion --icon C:\packs\icon.png --background C:\packs\background.jpg
 profile clone PaperlandIterion NewPaperlandIterion
+profile opening-on PaperlandIterion
+profile opening-off PaperlandIterion
+admin add AdminMinecraftNick
+admin remove AdminMinecraftNick
+admin list
 profile list
 profile delete PaperlandIterion
 build PaperlandIterion
@@ -76,6 +81,18 @@ Profile `description` can also be edited directly in `data/profiles.json`:
   }
 }
 ```
+
+## Opening Mode and global admins
+
+`profile opening-on <slug>` leaves pack visible and its files downloadable for everyone, but blocks `Play` for normal players. Launcher shows `Opening`; only global launcher admins may run pack. Turn mode off with `profile opening-off <slug>` (or `profile opening <slug> true|false`).
+
+Global admins also see and can run disabled packs. Manage them with `admin add/remove/list`. Backend stores list in `data/admins.json`, so it can also be edited directly:
+
+```json
+["AdminMinecraftNick", "AnotherAdmin"]
+```
+
+Name matching case-insensitive and uses authenticated Azuriom Minecraft username. Existing `profile user-add` access list keeps its old purpose: allow specific users into a disabled pack; it does not bypass Opening Mode.
 
 Profile assets are copied into `data/assets/profiles/<slug>/` and served as:
 
