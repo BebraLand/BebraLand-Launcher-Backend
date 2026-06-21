@@ -60,6 +60,16 @@ def _cache_profile(profile: dict[str, Any]) -> dict[str, Any]:
     return cached
 
 
+def cache_profile(profile: dict[str, Any]) -> dict[str, Any]:
+    """Make a launcher-authenticated profile available to the session API.
+
+    The client asks this API for its own textures in singleplayer, where the
+    multiplayer ``join`` endpoint (which normally fills this cache) is never
+    called.
+    """
+    return _cache_profile(profile)
+
+
 def _lookup_profile_by_name(name: str) -> dict[str, Any]:
     user = {"display_name": name, "username": name, "uuid": None}
     return _cache_profile(minecraft_profile.profile_from_user(user))

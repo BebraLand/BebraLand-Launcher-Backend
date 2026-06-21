@@ -348,11 +348,12 @@ def azuriom_verify(payload: AzuriomToken) -> dict[str, Any]:
     try:
         verified = auth.azuriom_verify(payload.access_token)
         user = auth.normalize_azuriom_user(verified)
+        profile = yggdrasil.cache_profile(minecraft_profile.profile_from_user(user))
         return {
             "status": "success",
             "provider": "azuriom",
             "user": user,
-            "minecraft_profile": minecraft_profile.profile_from_user(user),
+            "minecraft_profile": profile,
             "raw": verified,
         }
     except auth.AzuriomAuthError as exc:
@@ -400,21 +401,26 @@ async def websocket_result(
         await broadcast_profiles("profile_built")
         return manifest_payload
     if message_type == "auth.azuriom.login":
-        return await asyncio.to_thread(
+        result = await asyncio.to_thread(
             auth.azuriom_login,
             str(payload.get("email") or ""),
             str(payload.get("password") or ""),
             payload.get("code"),
         )
+        if result.get("status") == "success":
+            profile = yggdrasil.cache_profile(result.get("minecraft_profile") or {})
+            result["minecraft_profile"] = profile
+        return result
     if message_type == "auth.azuriom.verify":
         access_token = str(payload.get("access_token") or "")
         verified = await asyncio.to_thread(auth.azuriom_verify, access_token)
         user = auth.normalize_azuriom_user(verified)
+        profile = yggdrasil.cache_profile(minecraft_profile.profile_from_user(user))
         return {
             "status": "success",
             "provider": "azuriom",
             "user": user,
-            "minecraft_profile": minecraft_profile.profile_from_user(user),
+            "minecraft_profile": profile,
             "raw": verified,
         }
     if message_type == "auth.azuriom.logout":
