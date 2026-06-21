@@ -71,6 +71,13 @@ class BebraLandShell(cmd.Cmd):
                 profile = storage.set_profile_enabled(args[1], action == "enable")
                 state = "enabled" if profile.get("enabled") else "disabled"
                 console.print(f"{profile['slug']} {state}")
+            elif action == "opening":
+                if len(args) != 3 or args[2].lower() not in {"on", "off", "true", "false"}:
+                    console.print("Usage: profile opening <slug> on|off")
+                    return
+                enabled = args[2].lower() in {"on", "true"}
+                profile = storage.set_profile_opening_mode(args[1], enabled)
+                console.print(f"{profile['slug']} Opening Mode: {'on' if profile['opening_mode'] else 'off'}")
             elif action == "user":
                 if len(args) != 4 or args[1] not in {"add", "remove"}:
                     console.print("Usage: profile user add|remove <slug> <username>")
@@ -208,6 +215,22 @@ class BebraLandShell(cmd.Cmd):
         except Exception as exc:
             console.print(f"[red]{exc}[/red]")
 
+    def do_admin(self, line: str) -> None:
+        """admin add|remove <username> | admin list"""
+        args = shlex.split(line)
+        if args == ["list"]:
+            users = storage.load_admin_users()
+            console.print(", ".join(users) if users else "No global launcher admins")
+            return
+        if len(args) != 2 or args[0] not in {"add", "remove"}:
+            console.print("Usage: admin add|remove <username> | admin list")
+            return
+        try:
+            users = storage.set_admin_user(args[1], args[0] == "add")
+            console.print(f"Global admins: {', '.join(users) or '-'}")
+        except Exception as exc:
+            console.print(f"[red]{exc}[/red]")
+
     def do_whitelist(self, line: str) -> None:
         """whitelist add <profile> <pattern> | whitelist remove <profile> <pattern>"""
         self._rule("whitelist", line)
@@ -281,7 +304,7 @@ class BebraLandShell(cmd.Cmd):
 
 def print_profiles() -> None:
     table = Table(title="Profiles")
-    for column in ("priority", "enabled", "slug", "name", "mc", "loader", "loader_ver", "ram_mb", "allowed", "server", "latest"):
+    for column in ("priority", "enabled", "opening", "slug", "name", "mc", "loader", "loader_ver", "ram_mb", "allowed", "server", "latest"):
         table.add_column(column)
     for profile in storage.list_profiles(include_hidden=True):
         server = storage.normalize_profile_server(profile.get("server"))
@@ -289,6 +312,7 @@ def print_profiles() -> None:
         table.add_row(
             str(profile.get("priority", storage.DEFAULT_PROFILE_PRIORITY)),
             "yes" if storage.normalize_bool(profile.get("enabled"), True) else "no",
+            "yes" if storage.normalize_bool(profile.get("opening_mode"), False) else "no",
             profile["slug"],
             profile["name"],
             profile["minecraft_version"],
@@ -314,6 +338,7 @@ def print_profile_help() -> None:
         "  profile priority <slug> <number>",
         "  profile enable <slug>",
         "  profile disable <slug>",
+        "  profile opening <slug> on|off",
         "  profile user add|remove <slug> <username>",
         "  profile server <slug> <host[:port]> [--port PORT] [--name NAME]",
         "  profile server <slug> --clear",
@@ -327,6 +352,8 @@ def print_profile_help() -> None:
         "  enable <slug>",
         "  disable <slug>",
         "  user add|remove <slug> <username>",
+        "  admin add|remove <username>",
+        "  admin list",
     ]
     console.print("\n".join(lines), markup=False)
 
