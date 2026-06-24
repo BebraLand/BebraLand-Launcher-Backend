@@ -12,6 +12,7 @@ from typing import Any
 from urllib.parse import quote
 
 from . import server_status
+from . import config
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -100,7 +101,7 @@ def normalize_profile_asset_name(value: Any) -> str:
 def profile_asset_url(profile: dict[str, Any], kind: str) -> str:
     def local_asset_url(slug_value: str, asset_path: Path) -> str:
         version = sha256_file(asset_path)[:16]
-        return f"/assets/profiles/{quote(slug_value)}/{quote(asset_path.name)}?v={version}"
+        return f"{config.public_base_url()}/assets/profiles/{quote(slug_value)}/{quote(asset_path.name)}?v={version}"
 
     kind = str(kind or "").strip().lower()
     if kind not in PROFILE_ASSET_KINDS:
@@ -119,7 +120,7 @@ def profile_asset_url(profile: dict[str, Any], kind: str) -> str:
         asset_path = profile_assets_dir(slug) / asset_name
         if asset_path.is_file():
             return local_asset_url(slug, asset_path)
-        return f"/assets/profiles/{quote(slug)}/{quote(asset_name)}"
+        return f"{config.public_base_url()}/assets/profiles/{quote(slug)}/{quote(asset_name)}"
 
     assets_dir = profile_assets_dir(slug)
     if assets_dir.exists():
