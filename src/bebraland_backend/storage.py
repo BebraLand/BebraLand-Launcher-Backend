@@ -33,7 +33,8 @@ DEFAULT_WHITELIST: list[str] = [
     "screenshots/**",
     "saves/**",
     "launcher_profiles.json",
-    "launcher_accounts.json"
+    "launcher_accounts.json",
+    "schematics/**",
 ]
 DEFAULT_BLACKLIST: list[str] = []
 DEFAULT_INTERNAL_EXCLUDE = [
