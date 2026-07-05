@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import cmd
 import shlex
+from datetime import datetime, timezone
 from pathlib import Path
 
 import uvicorn
@@ -161,6 +162,10 @@ class BebraLandShell(cmd.Cmd):
             elif action == "path":
                 profile = storage.get_profile(args[1])
                 console.print(profile["source_dir"])
+            elif action in {"clean-now", "cleanup-now"}:
+                add_cleanup_now(args[1:])
+            elif action == "cleanup":
+                handle_cleanup(args[1:])
             else:
                 console.print(f"Unknown profile action: {action}")
         except Exception as exc:
@@ -238,6 +243,10 @@ class BebraLandShell(cmd.Cmd):
     def do_blacklist(self, line: str) -> None:
         """blacklist add <profile> <pattern> | blacklist remove <profile> <pattern>"""
         self._rule("blacklist", line)
+
+    def do_cleanup(self, line: str) -> None:
+        """cleanup now|list|remove <slug> [path|task_id]"""
+        handle_cleanup(shlex.split(line))
 
     def do_allow(self, line: str) -> None:
         """Alias for whitelist."""
@@ -342,6 +351,8 @@ def print_profile_help() -> None:
         "  profile user add|remove <slug> <username>",
         "  profile server <slug> <host[:port]> [--port PORT] [--name NAME]",
         "  profile server <slug> --clear",
+        "  profile clean-now <slug> <path> [path...]",
+        "  profile cleanup list|remove <slug> [task_id]",
         "  profile clone <old> <new>",
         "  profile delete <name>",
         "  profile path <name>",
@@ -356,6 +367,30 @@ def print_profile_help() -> None:
         "  admin list",
     ]
     console.print("\n".join(lines), markup=False)
+
+
+def add_cleanup_now(args: list[str]) -> None:
+    if len(args) < 2:
+        console.print("Usage: profile clean-now <slug> <path> [path...]")
+        return
+    task_id = f"cleanup-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}"
+    profile = storage.set_cleanup_task(args[0], task_id, args[1:], True)
+    console.print(f"Added cleanup task {task_id}: {profile['cleanup_tasks'][-1]['paths']}")
+
+
+def handle_cleanup(args: list[str]) -> None:
+    if len(args) >= 3 and args[0] in {"now", "add"}:
+        add_cleanup_now(args[1:])
+        return
+    if len(args) == 2 and args[0] == "list":
+        tasks = storage.normalize_cleanup_tasks(storage.get_profile(args[1]).get("cleanup_tasks"))
+        console.print(tasks or "No cleanup tasks")
+        return
+    if len(args) == 3 and args[0] == "remove":
+        profile = storage.set_cleanup_task(args[1], args[2], [], False)
+        console.print(profile["cleanup_tasks"])
+        return
+    console.print("Usage: cleanup now <slug> <path> [path...] | cleanup list <slug> | cleanup remove <slug> <task_id>")
 
 
 def parse_profile_options(args: list[str]) -> tuple[int, Path | None, Path | None, str]:
