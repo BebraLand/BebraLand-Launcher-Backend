@@ -61,6 +61,7 @@ VANILLA_LOADERS = {"vanilla", "minecraft", "none"}
 OPTIONAL_MOD_ID_RE = re.compile(r"^[a-zA-Z0-9_.-]+$")
 PROFILE_ASSET_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 PROFILE_ASSET_KINDS = {"icon", "background"}
+CLEANUP_TASK_ID_RE = re.compile(r"^[a-zA-Z0-9_.:-]+$")
 
 
 def data_dir() -> Path:
@@ -409,6 +410,38 @@ def normalize_optional_mods(value: Any) -> list[dict[str, Any]]:
     return result
 
 
+def normalize_cleanup_tasks(value: Any) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("cleanup_tasks must be a list")
+
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, raw_task in enumerate(value, start=1):
+        if not isinstance(raw_task, dict):
+            raise ValueError(f"cleanup_tasks[{index}] must be an object")
+        task_id = str(raw_task.get("id") or raw_task.get("key") or "").strip()
+        if not task_id:
+            raise ValueError(f"cleanup_tasks[{index}].id is required")
+        if not CLEANUP_TASK_ID_RE.fullmatch(task_id):
+            raise ValueError(f"cleanup_tasks[{index}].id has invalid characters")
+        if task_id in seen:
+            raise ValueError(f"Duplicate cleanup task id: {task_id}")
+        seen.add(task_id)
+
+        raw_paths = raw_task.get("paths") if raw_task.get("paths") is not None else raw_task.get("path")
+        if isinstance(raw_paths, str):
+            raw_paths = [raw_paths]
+        paths = normalize_string_list(raw_paths, f"cleanup_tasks[{task_id}].paths")
+        paths = [normalize_pack_pattern(path) for path in paths]
+        paths = [path for path in paths if path and path not in {".", "*", "**", "**/*"}]
+        if not paths:
+            raise ValueError(f"cleanup_tasks[{task_id}].paths must not be empty")
+        result.append({"id": task_id, "paths": list(dict.fromkeys(paths))})
+    return result
+
+
 def normalize_runtime(
     minecraft_version: str,
     mod_loader: str,
@@ -544,6 +577,11 @@ def load_profiles() -> dict[str, dict[str, Any]]:
         optional_mods = normalize_optional_mods(old_optional_mods)
         if old_optional_mods != optional_mods:
             profile["optional_mods"] = optional_mods
+            dirty = True
+        old_cleanup_tasks = profile.get("cleanup_tasks")
+        cleanup_tasks = normalize_cleanup_tasks(old_cleanup_tasks)
+        if old_cleanup_tasks != cleanup_tasks:
+            profile["cleanup_tasks"] = cleanup_tasks
             dirty = True
         for pattern in DEFAULT_WHITELIST:
             if pattern not in profile["whitelist"]:
@@ -851,6 +889,21 @@ def set_admin_user(username: str, enabled: bool) -> list[str]:
     return users
 
 
+def set_cleanup_task(slug: str, task_id: str, paths: list[str], enabled: bool) -> dict[str, Any]:
+    profiles = load_profiles()
+    slug = profile_key(slug)
+    if slug not in profiles:
+        raise KeyError(f"Profile not found: {slug}")
+    tasks = [task for task in normalize_cleanup_tasks(profiles[slug].get("cleanup_tasks")) if task["id"] != task_id]
+    if enabled:
+        tasks.append({"id": task_id, "paths": paths})
+    profiles[slug]["cleanup_tasks"] = normalize_cleanup_tasks(tasks)
+    profiles[slug]["updated_at"] = now_iso()
+    save_profiles(profiles)
+    clear_profile_build(slug)
+    return profiles[slug]
+
+
 def set_profile_allowed_user(slug: str, username: str, enabled: bool) -> dict[str, Any]:
     profiles = load_profiles()
     slug = profile_key(slug)
@@ -1113,6 +1166,7 @@ def iter_source_files(profile: dict[str, Any]) -> list[tuple[Path, str]]:
 
 
 def profile_manifest_signature(profile: dict[str, Any], optional_mods: list[dict[str, Any]]) -> str:
+    cleanup_tasks = normalize_cleanup_tasks(profile.get("cleanup_tasks"))
     digest = hashlib.sha256()
     for value in (
         profile["slug"],
@@ -1127,6 +1181,7 @@ def profile_manifest_signature(profile: dict[str, Any], optional_mods: list[dict
         json.dumps(profile.get("whitelist", []), sort_keys=True, separators=(",", ":"), ensure_ascii=False),
         json.dumps(profile.get("blacklist", []), sort_keys=True, separators=(",", ":"), ensure_ascii=False),
         json.dumps(optional_mods, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+        json.dumps(cleanup_tasks, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
     ):
         digest.update(value.encode("utf-8"))
         digest.update(b"\0")
@@ -1183,6 +1238,7 @@ def build_profile(slug: str, base_url: str) -> dict[str, Any]:
         raise KeyError(f"Profile not found: {slug}")
     profile = profiles[slug]
     optional_mods = normalize_optional_mods(profile.get("optional_mods"))
+    cleanup_tasks = normalize_cleanup_tasks(profile.get("cleanup_tasks"))
     source_files = iter_source_files(profile)
     profile_signature = profile_manifest_signature(profile, optional_mods)
     source_signature = source_file_signature(source_files)
@@ -1220,6 +1276,7 @@ def build_profile(slug: str, base_url: str) -> dict[str, Any]:
         profile_asset_url(profile, "icon"),
         profile_asset_url(profile, "background"),
         json.dumps(optional_mods, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+        json.dumps(cleanup_tasks, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
     ):
         digest.update(value.encode("utf-8"))
         digest.update(b"\0")
@@ -1273,6 +1330,7 @@ def build_profile(slug: str, base_url: str) -> dict[str, Any]:
             "internal_exclude": list(DEFAULT_INTERNAL_EXCLUDE),
         },
         "optional_mods": optional_mods,
+        "cleanup_tasks": cleanup_tasks,
         "files": public_entries,
     }
     write_json(build_root / "latest.json", manifest)

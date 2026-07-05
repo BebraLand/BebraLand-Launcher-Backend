@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 import typer
 import uvicorn
@@ -291,6 +292,44 @@ def blacklist_add(slug: str, pattern: str) -> None:
 def blacklist_remove(slug: str, pattern: str) -> None:
     profile = storage.set_rule(slug, "blacklist", pattern, False)
     console.print(profile["blacklist"])
+
+
+@profile_app.command("cleanup-list")
+def cleanup_list(slug: str) -> None:
+    tasks = storage.normalize_cleanup_tasks(storage.get_profile(slug).get("cleanup_tasks"))
+    if not tasks:
+        console.print("No cleanup tasks")
+        return
+    table = Table(title=f"{slug} cleanup tasks")
+    table.add_column("id")
+    table.add_column("paths")
+    for task in tasks:
+        table.add_row(task["id"], ", ".join(task["paths"]))
+    console.print(table)
+
+
+@profile_app.command("cleanup-add")
+def cleanup_add(slug: str, task_id: str, paths: list[str]) -> None:
+    if not paths:
+        raise typer.BadParameter("Pass at least one path")
+    profile = storage.set_cleanup_task(slug, task_id, paths, True)
+    console.print(profile["cleanup_tasks"])
+
+
+@profile_app.command("cleanup-now")
+@profile_app.command("clean-now")
+def cleanup_now(slug: str, paths: list[str]) -> None:
+    if not paths:
+        raise typer.BadParameter("Pass at least one path")
+    task_id = f"cleanup-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}"
+    profile = storage.set_cleanup_task(slug, task_id, paths, True)
+    console.print(f"Added cleanup task {task_id}: {profile['cleanup_tasks'][-1]['paths']}")
+
+
+@profile_app.command("cleanup-remove")
+def cleanup_remove(slug: str, task_id: str) -> None:
+    profile = storage.set_cleanup_task(slug, task_id, [], False)
+    console.print(profile["cleanup_tasks"])
 
 
 @profile_app.command("allow-add", hidden=True)
