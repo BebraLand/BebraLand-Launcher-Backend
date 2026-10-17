@@ -35,7 +35,7 @@ def relay_base_url() -> str:
 
 
 def site_url() -> str:
-    return (os.environ.get("BEBRALAND_SITE_URL") or os.environ.get("AZURIOM_URL", "")).strip().rstrip("/")
+    return (os.environ.get("AZURIOM_URL") or os.environ.get("BEBRALAND_SITE_URL", "")).strip().rstrip("/")
 
 
 def authlib_server_name() -> str:

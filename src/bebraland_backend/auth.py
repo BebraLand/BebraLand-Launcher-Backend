@@ -54,7 +54,7 @@ def azuriom_base_url() -> str:
             {
                 "status": "error",
                 "reason": "azuriom_not_configured",
-                "message": "BEBRALAND_SITE_URL is not configured",
+                "message": "AZURIOM_URL is not configured",
             },
         )
     return value.rstrip("/") + "/"

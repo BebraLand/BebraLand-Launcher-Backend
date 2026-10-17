@@ -9,7 +9,7 @@ from bebraland_backend import api, auth, config, skins, yggdrasil
 
 class SiteUrlTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        environment = patch.dict(os.environ, {"BEBRALAND_SITE_URL": "https://new.example/site/", "AZURIOM_URL": "https://old.example"}, clear=True)
+        environment = patch.dict(os.environ, {"AZURIOM_URL": "https://new.example/site/", "BEBRALAND_SITE_URL": "https://old.example"}, clear=True)
         environment.start()
         self.addCleanup(environment.stop)
 
@@ -18,8 +18,8 @@ class SiteUrlTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(auth.azuriom_base_url(), "https://new.example/site/")
         self.assertEqual(skins.skin_api_url("api/skin-api/profile/test"), "https://new.example/site/api/skin-api/profile/test")
 
-    def test_legacy_azuriom_setting_is_still_supported(self):
-        del os.environ["BEBRALAND_SITE_URL"]
+    def test_previous_alias_is_still_supported(self):
+        del os.environ["AZURIOM_URL"]
         self.assertEqual(auth.azuriom_base_url(), "https://old.example/")
 
     def test_missing_site_is_reported(self):
