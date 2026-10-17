@@ -22,7 +22,7 @@ BEBRALAND_PORT=8765
 BEBRALAND_PUBLIC_BASE_URL=http://127.0.0.1:8765
 BEBRALAND_FILE_BASE_URL=http://127.0.0.1:8765
 BEBRALAND_RELAY_BASE_URL=
-AZURIOM_URL=https://your-azuriom-site.example
+BEBRALAND_SITE_URL=https://your-azuriom-site.example
 BEBRALAND_AUTHLIB_SERVER_NAME=BebraLand
 BEBRALAND_SKIN_DOMAINS=
 ```
@@ -31,6 +31,16 @@ BEBRALAND_SKIN_DOMAINS=
 is written into pack manifests for `/files/...` downloads. `BEBRALAND_RELAY_BASE_URL` makes this
 backend fetch profile manifests from another backend, useful when an always-on VM handles auth/API
 and a home server handles pack files.
+
+`BEBRALAND_SITE_URL` is the single website base URL for Azuriom authentication, skins, and capes.
+It is also sent in the WebSocket greeting so launchers use it for news and the Website button.
+Change it here, restart the backend, and reconnect the launcher to switch domains.
+`AZURIOM_URL` remains a fallback for older configurations; `BEBRALAND_SITE_URL` takes priority.
+
+When updating an existing server, `git pull` does not change its ignored `.env` file.
+Set `BEBRALAND_SITE_URL=https://bebraland.auuruum.dev` in that server's environment, then restart
+the backend. Confirm `GET /` returns the new `site_url`; an unchanged legacy `AZURIOM_URL`
+will otherwise keep pointing authentication at the old domain.
 
 ## Profiles
 
@@ -178,14 +188,14 @@ Enable AzAuth in Azuriom admin: Settings -> Authentication.
 
 Backend uses Azuriom HTTP API:
 
-- `POST <AZURIOM_URL>/api/auth/authenticate`
-- `POST <AZURIOM_URL>/api/auth/verify`
-- `POST <AZURIOM_URL>/api/auth/logout`
+- `POST <BEBRALAND_SITE_URL>/api/auth/authenticate`
+- `POST <BEBRALAND_SITE_URL>/api/auth/verify`
+- `POST <BEBRALAND_SITE_URL>/api/auth/logout`
 
 Set site URL in `.env` before starting backend:
 
 ```env
-AZURIOM_URL=https://your-azuriom-site.example
+BEBRALAND_SITE_URL=https://your-azuriom-site.example
 ```
 
 Frontend sends email/password/2FA to backend. Backend authenticates against Azuriom and verifies token server-side.
@@ -203,7 +213,7 @@ Launcher uses this API automatically. It launches Minecraft with the Azuriom acc
 Install the Azuriom Skin API resource and enable capes there if you need capes. Skins/capes are read from:
 
 ```text
-GET <AZURIOM_URL>/api/skin-api/profile/{user_name}
+GET <BEBRALAND_SITE_URL>/api/skin-api/profile/{user_name}
 ```
 
 The launcher account page can also upload textures through the backend websocket:

@@ -9,7 +9,7 @@ import urllib.request
 from typing import Any
 from urllib.parse import quote, urljoin
 
-from . import auth
+from . import auth, config
 
 
 MAX_TEXTURE_BYTES = 4 * 1024 * 1024
@@ -28,6 +28,7 @@ def skin_api_url(path: str) -> str:
 
 
 def _request_json(url: str, request: urllib.request.Request) -> dict[str, Any]:
+    request.add_header("User-Agent", config.SITE_USER_AGENT)
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             body = response.read().decode("utf-8")

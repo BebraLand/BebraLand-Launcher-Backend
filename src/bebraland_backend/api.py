@@ -237,7 +237,7 @@ def storage_signature() -> tuple[tuple[str, int, int], ...]:
 @app.get("/")
 def root() -> JSONResponse:
     return JSONResponse(
-        {"status": "ok", "version": __version__},
+        {"status": "ok", "version": __version__, "site_url": config.site_url()},
         headers={"X-Authlib-Injector-API-Location": "/api/yggdrasil/"},
     )
 
@@ -463,7 +463,7 @@ def websocket_error_payload(exc: Exception) -> dict[str, Any]:
 async def websocket_api(websocket: WebSocket) -> None:
     await manager.connect(websocket)
     try:
-        await manager.send(websocket, {"type": "hello", "version": __version__})
+        await manager.send(websocket, {"type": "hello", "version": __version__, "site_url": config.site_url()})
         while True:
             message = await websocket.receive_json()
             message_id = message.get("id")

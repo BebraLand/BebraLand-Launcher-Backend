@@ -90,7 +90,7 @@ def _verify_access_token(access_token: str) -> dict[str, Any]:
 
 def _azuriom_get_json(path: str) -> dict[str, Any]:
     url = urljoin(auth.azuriom_base_url(), path.lstrip("/"))
-    request = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
+    request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": config.SITE_USER_AGENT}, method="GET")
     with urllib.request.urlopen(request, timeout=15) as response:
         body = response.read().decode("utf-8")
         payload = json.loads(body) if body else {}

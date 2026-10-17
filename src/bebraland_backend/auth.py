@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 import urllib.error
 import urllib.request
@@ -48,14 +47,14 @@ def two_factor_pending_payload(message: str | None = None, reason: str | None = 
 
 
 def azuriom_base_url() -> str:
-    value = os.environ.get("AZURIOM_URL", "").strip()
+    value = config.site_url()
     if not value:
         raise AzuriomAuthError(
             503,
             {
                 "status": "error",
                 "reason": "azuriom_not_configured",
-                "message": "AZURIOM_URL is not configured",
+                "message": "BEBRALAND_SITE_URL is not configured",
             },
         )
     return value.rstrip("/") + "/"
@@ -67,7 +66,7 @@ def azuriom_post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     request = urllib.request.Request(
         url,
         data=data,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        headers={"Content-Type": "application/json", "Accept": "application/json", "User-Agent": config.SITE_USER_AGENT},
         method="POST",
     )
     try:

@@ -5,7 +5,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from . import __version__
 
+
+SITE_USER_AGENT = f"BebraLand Launcher Backend/{__version__}"
 ROOT_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT_DIR / ".env")
 
@@ -29,6 +32,10 @@ def file_base_url() -> str:
 
 def relay_base_url() -> str:
     return os.environ.get("BEBRALAND_RELAY_BASE_URL", "").rstrip("/")
+
+
+def site_url() -> str:
+    return (os.environ.get("BEBRALAND_SITE_URL") or os.environ.get("AZURIOM_URL", "")).strip().rstrip("/")
 
 
 def authlib_server_name() -> str:
